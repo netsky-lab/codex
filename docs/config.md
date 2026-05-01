@@ -27,6 +27,23 @@ attribution value. If `commit_attribution` is omitted, Codex uses
 `Codex <noreply@openai.com>`. Set `commit_attribution = ""` to disable the
 trailer while leaving the feature flag enabled.
 
+## MCP channels
+
+MCP custom notifications can be promoted into active TUI user input only when a
+server explicitly opts into channels:
+
+```toml
+[mcp_servers.telegram-channel.channel]
+enabled = true
+mode = "queue"
+queue_capacity = 50
+dedupe_capacity = 200
+rate_limit_per_minute = 30
+```
+
+See [Channels](./channels.md) for the notification schema, Telegram bridge, and
+security notes.
+
 ## OpenTelemetry Trace Metadata
 
 Codex can add static OpenTelemetry span attributes to exported trace spans and
