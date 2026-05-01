@@ -161,6 +161,7 @@ use codex_protocol::models::local_image_label_text;
 use codex_protocol::parse_command::ParsedCommand;
 use codex_protocol::plan_tool::PlanItemArg as UpdatePlanItemArg;
 use codex_protocol::plan_tool::StepStatus as UpdatePlanItemStatus;
+use codex_protocol::protocol::ChannelMessageEvent;
 use codex_protocol::request_permissions::RequestPermissionsEvent;
 use codex_protocol::user_input::ByteRange;
 use codex_protocol::user_input::TextElement;
@@ -1200,6 +1201,36 @@ impl From<&str> for UserMessage {
             mention_bindings: Vec::new(),
         }
     }
+}
+
+fn format_channel_message_for_model(ev: ChannelMessageEvent) -> String {
+    let mut attrs = vec![format!("server=\"{}\"", escape_xml_attr(&ev.server))];
+    if let Some(source) = ev.source.as_deref() {
+        attrs.push(format!("source=\"{}\"", escape_xml_attr(source)));
+    }
+    if let Some(sender) = ev.sender.as_deref() {
+        attrs.push(format!("sender=\"{}\"", escape_xml_attr(sender)));
+    }
+    format!(
+        "<channel {}>\n{}\n</channel>",
+        attrs.join(" "),
+        escape_xml_text(&ev.text)
+    )
+}
+
+fn escape_xml_attr(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+fn escape_xml_text(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 struct PendingSteer {
@@ -5621,6 +5652,14 @@ impl ChatWidget {
         let _accepted = self.submit_user_message_with_history_record(
             user_message,
             UserMessageHistoryRecord::UserMessageText,
+        );
+    }
+
+    fn on_channel_message(&mut self, ev: ChannelMessageEvent) {
+        let text = format_channel_message_for_model(ev);
+        let _ = self.submit_user_message_with_shell_escape_policy(
+            UserMessage::from(text),
+            ShellEscapePolicy::Disallow,
         );
     }
 

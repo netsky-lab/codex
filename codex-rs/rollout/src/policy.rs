@@ -150,6 +150,8 @@ fn event_msg_persistence_mode(ev: &EventMsg) -> Option<EventPersistenceMode> {
         | EventMsg::RequestUserInput(_)
         | EventMsg::ElicitationRequest(_)
         | EventMsg::ApplyPatchApprovalRequest(_)
+        | EventMsg::BackgroundEvent(_)
+        | EventMsg::ChannelMessage(_)
         | EventMsg::StreamError(_)
         | EventMsg::PatchApplyBegin(_)
         | EventMsg::PatchApplyUpdated(_)
