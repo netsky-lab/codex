@@ -675,6 +675,35 @@ struct PendingGuardianReviewStatusEntry {
     detail: String,
 }
 
+#[derive(Default)]
+struct ChannelUiState {
+    muted: bool,
+    paused: bool,
+    received: usize,
+    submitted: usize,
+    dropped: usize,
+    queued: VecDeque<ChannelMessageEvent>,
+}
+
+impl ChannelUiState {
+    fn status_summary(&self) -> String {
+        let state = if self.muted {
+            "muted"
+        } else if self.paused {
+            "paused"
+        } else {
+            "active"
+        };
+        format!(
+            "Channels are {state}. received={}, submitted={}, queued={}, dropped={}",
+            self.received,
+            self.submitted,
+            self.queued.len(),
+            self.dropped
+        )
+    }
+}
+
 impl PendingGuardianReviewStatus {
     fn start_or_update(&mut self, id: String, detail: String) {
         if let Some(existing) = self.entries.iter_mut().find(|entry| entry.id == id) {
@@ -850,6 +879,7 @@ pub(crate) struct ChatWidget {
     mcp_startup_pending_next_round: HashMap<String, McpStartupStatus>,
     /// Tracks whether the buffered next round has seen any `Starting` update yet.
     mcp_startup_pending_next_round_saw_starting: bool,
+    channel_ui: ChannelUiState,
     connectors_cache: ConnectorsCacheState,
     connectors_partial_snapshot: Option<ConnectorsSnapshot>,
     connectors_prefetch_in_flight: bool,
@@ -1204,33 +1234,18 @@ impl From<&str> for UserMessage {
 }
 
 fn format_channel_message_for_model(ev: ChannelMessageEvent) -> String {
-    let mut attrs = vec![format!("server=\"{}\"", escape_xml_attr(&ev.server))];
-    if let Some(source) = ev.source.as_deref() {
-        attrs.push(format!("source=\"{}\"", escape_xml_attr(source)));
-    }
-    if let Some(sender) = ev.sender.as_deref() {
-        attrs.push(format!("sender=\"{}\"", escape_xml_attr(sender)));
-    }
-    format!(
-        "<channel {}>\n{}\n</channel>",
-        attrs.join(" "),
-        escape_xml_text(&ev.text)
-    )
-}
-
-fn escape_xml_attr(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('"', "&quot;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-}
-
-fn escape_xml_text(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
+    let value = serde_json::json!({
+        "type": "channel_message",
+        "schema_version": ev.schema_version,
+        "id": ev.id,
+        "server": ev.server,
+        "source": ev.source,
+        "sender": ev.sender,
+        "text": ev.text,
+        "metadata": ev.metadata,
+    });
+    let json = serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string());
+    format!("Inbound channel message:\n```json\n{json}\n```")
 }
 
 struct PendingSteer {
@@ -5010,6 +5025,7 @@ impl ChatWidget {
             mcp_startup_allow_terminal_only_next_round: false,
             mcp_startup_pending_next_round: HashMap::new(),
             mcp_startup_pending_next_round_saw_starting: false,
+            channel_ui: ChannelUiState::default(),
             connectors_cache: ConnectorsCacheState::default(),
             connectors_partial_snapshot: None,
             connectors_prefetch_in_flight: false,
@@ -5655,12 +5671,92 @@ impl ChatWidget {
         );
     }
 
-    fn on_channel_message(&mut self, ev: ChannelMessageEvent) {
+    #[allow(dead_code)]
+    pub(crate) fn on_channel_message(&mut self, ev: ChannelMessageEvent) {
+        self.channel_ui.received = self.channel_ui.received.saturating_add(1);
+        if self.channel_ui.muted {
+            self.channel_ui.dropped = self.channel_ui.dropped.saturating_add(1);
+            self.add_info_message(
+                format!("Ignored muted channel message {} from {}", ev.id, ev.server),
+                /*hint*/ None,
+            );
+            return;
+        }
+        if self.channel_ui.paused {
+            self.add_info_message(
+                format!("Queued paused channel message {} from {}", ev.id, ev.server),
+                Some("Use /channels resume to submit queued channel messages.".to_string()),
+            );
+            self.channel_ui.queued.push_back(ev);
+            return;
+        }
+        self.submit_channel_message(ev);
+    }
+
+    fn submit_channel_message(&mut self, ev: ChannelMessageEvent) {
+        let id = ev.id.clone();
+        let server = ev.server.clone();
         let text = format_channel_message_for_model(ev);
+        self.add_info_message(
+            format!("Submitted channel message {id} from {server}."),
+            /*hint*/ None,
+        );
         let _ = self.submit_user_message_with_shell_escape_policy(
             UserMessage::from(text),
             ShellEscapePolicy::Disallow,
         );
+        self.channel_ui.submitted = self.channel_ui.submitted.saturating_add(1);
+    }
+
+    fn add_channels_status_output(&mut self) {
+        self.add_info_message(
+            self.channel_ui.status_summary(),
+            Some("Use /channels pause|resume|mute|unmute|status.".to_string()),
+        );
+    }
+
+    fn handle_channels_command_args(&mut self, args: &str) {
+        match args.trim().to_ascii_lowercase().as_str() {
+            "" | "status" => self.add_channels_status_output(),
+            "pause" => {
+                self.channel_ui.paused = true;
+                self.add_channels_status_output();
+            }
+            "resume" => {
+                self.channel_ui.paused = false;
+                let queued = self.channel_ui.queued.len();
+                self.add_info_message(
+                    format!("Channels resumed. Submitting {queued} queued message(s)."),
+                    /*hint*/ None,
+                );
+                while let Some(ev) = self.channel_ui.queued.pop_front() {
+                    if self.channel_ui.muted {
+                        self.channel_ui.dropped = self.channel_ui.dropped.saturating_add(1);
+                        continue;
+                    }
+                    self.submit_channel_message(ev);
+                }
+            }
+            "mute" => {
+                self.channel_ui.muted = true;
+                self.add_channels_status_output();
+            }
+            "unmute" => {
+                self.channel_ui.muted = false;
+                self.add_channels_status_output();
+            }
+            "clear" => {
+                let queued = self.channel_ui.queued.len();
+                self.channel_ui.queued.clear();
+                self.add_info_message(
+                    format!("Cleared {queued} queued channel message(s)."),
+                    /*hint*/ None,
+                );
+            }
+            _ => self.add_error_message(
+                "Usage: /channels [status|pause|resume|mute|unmute|clear]".to_string(),
+            ),
+        }
     }
 
     fn submit_user_message_with_history_record(
