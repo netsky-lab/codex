@@ -14,6 +14,7 @@ use crate::thread_status::ThreadWatchManager;
 use codex_app_server_protocol::AccountRateLimitsUpdatedNotification;
 use codex_app_server_protocol::AdditionalPermissionProfile as V2AdditionalPermissionProfile;
 use codex_app_server_protocol::CodexErrorInfo as V2CodexErrorInfo;
+use codex_app_server_protocol::ChannelMessageNotification;
 use codex_app_server_protocol::CommandAction as V2ParsedCommand;
 use codex_app_server_protocol::CommandExecutionApprovalDecision;
 use codex_app_server_protocol::CommandExecutionRequestApprovalParams;
@@ -931,6 +932,13 @@ pub(crate) async fn apply_bespoke_event_handling(
             };
             outgoing
                 .send_server_notification(ServerNotification::DeprecationNotice(notification))
+                .await;
+        }
+        EventMsg::ChannelMessage(event) => {
+            outgoing
+                .send_global_server_notification(ServerNotification::ChannelMessage(
+                    ChannelMessageNotification { event },
+                ))
                 .await;
         }
         EventMsg::TokenCount(token_count_event) => {

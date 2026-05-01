@@ -1,8 +1,48 @@
 //! User-message and shell-prompt submission behavior for `ChatWidget`.
 
+use codex_protocol::protocol::ChannelMessageEvent;
+
 use super::*;
 
+fn format_channel_message_for_model(ev: ChannelMessageEvent) -> String {
+    let value = serde_json::json!({
+        "type": "channel_message",
+        "schema_version": ev.schema_version,
+        "id": ev.id,
+        "server": ev.server,
+        "source": ev.source,
+        "sender": ev.sender,
+        "text": ev.text,
+        "metadata": ev.metadata,
+    });
+    let json = serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string());
+    format!("Inbound channel message:\n```json\n{json}\n```")
+}
+
+fn channel_message_history_text(ev: &ChannelMessageEvent) -> String {
+    let source = ev.source.as_deref().unwrap_or(ev.server.as_str());
+    match ev.sender.as_deref() {
+        Some(sender) if !sender.is_empty() => {
+            format!("Inbound {source} message from {sender}:\n{}", ev.text)
+        }
+        _ => format!("Inbound {source} message:\n{}", ev.text),
+    }
+}
+
 impl ChatWidget {
+    pub(crate) fn on_channel_message(&mut self, ev: ChannelMessageEvent) {
+        let history_text = channel_message_history_text(&ev);
+        let text = format_channel_message_for_model(ev);
+        let _ = self.submit_user_message_with_history_and_shell_escape_policy(
+            UserMessage::from(text),
+            UserMessageHistoryRecord::Override(UserMessageHistoryOverride {
+                text: history_text,
+                text_elements: Vec::new(),
+            }),
+            ShellEscapePolicy::Disallow,
+        );
+    }
+
     pub(super) fn user_message_from_submission(
         &mut self,
         text: String,
