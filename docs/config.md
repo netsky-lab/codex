@@ -26,6 +26,23 @@ Only enable parallel calls for MCP servers whose tools are safe to run at the
 same time. If tools read and write shared state, files, databases, or external
 resources, review those read/write race conditions before enabling this setting.
 
+## MCP channels
+
+MCP custom notifications can be promoted into active TUI user input only when a
+server explicitly opts into channels:
+
+```toml
+[mcp_servers.telegram-channel.channel]
+enabled = true
+mode = "queue"
+queue_capacity = 50
+dedupe_capacity = 200
+rate_limit_per_minute = 30
+```
+
+See [Channels](./channels.md) for the notification schema, Telegram bridge, and
+security notes.
+
 ## MCP tool approvals
 
 Codex stores approval defaults and per-tool overrides for custom MCP servers
