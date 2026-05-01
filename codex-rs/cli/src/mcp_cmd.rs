@@ -363,6 +363,7 @@ async fn run_add(config_overrides: &CliConfigOverrides, add_args: AddArgs) -> Re
             }),
         oauth_resource: oauth_resource.clone(),
         tools: HashMap::new(),
+        channel: Default::default(),
     };
 
     servers.insert(name.clone(), new_entry);
