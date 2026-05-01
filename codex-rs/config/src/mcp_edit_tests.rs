@@ -48,6 +48,7 @@ async fn replace_mcp_servers_serializes_per_tool_approval_overrides() -> anyhow:
                     },
                 ),
             ]),
+            channel: Default::default(),
         },
     )]);
 

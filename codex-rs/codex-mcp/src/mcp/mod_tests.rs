@@ -219,6 +219,7 @@ async fn effective_mcp_servers_preserve_user_servers_and_add_codex_apps() {
             scopes: None,
             oauth_resource: None,
             tools: HashMap::new(),
+            channel: Default::default(),
         },
     );
     config.configured_mcp_servers.insert(
@@ -243,6 +244,7 @@ async fn effective_mcp_servers_preserve_user_servers_and_add_codex_apps() {
             scopes: None,
             oauth_resource: None,
             tools: HashMap::new(),
+            channel: Default::default(),
         },
     );
 
