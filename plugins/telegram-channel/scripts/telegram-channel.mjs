@@ -87,7 +87,7 @@ async function handleRequest(message) {
         },
         serverInfo: {
           name: "telegram-channel",
-          version: "0.2.0",
+          version: "0.2.1",
           title: "Telegram Channel",
         },
         instructions:
@@ -369,6 +369,7 @@ async function writeOffset(offset) {
 function statusText() {
   return [
     `polling=${polling}`,
+    "channel_delivery=logging_notification_v1",
     `allow_all_chats=${allowAllChats}`,
     `allowed_chats=${allowedChatIds.size}`,
     `offset=${updateOffset}`,
