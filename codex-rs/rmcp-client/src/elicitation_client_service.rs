@@ -22,6 +22,7 @@ use crate::logging_client_handler::LoggingClientHandler;
 use crate::rmcp_client::Elicitation;
 use crate::rmcp_client::ElicitationPauseState;
 use crate::rmcp_client::ElicitationResponse;
+use crate::rmcp_client::SendCustomNotification;
 use crate::rmcp_client::SendElicitation;
 
 const MCP_PROGRESS_TOKEN_META_KEY: &str = "progressToken";
@@ -48,6 +49,7 @@ impl ElicitationClientService {
     pub(crate) fn new(
         client_info: ClientInfo,
         send_elicitation: SendElicitation,
+        send_custom_notification: SendCustomNotification,
         pause_state: ElicitationPauseState,
     ) -> Self {
         let supports_openai_form = client_info
@@ -56,10 +58,12 @@ impl ElicitationClientService {
             .as_ref()
             .is_some_and(|extensions| extensions.contains_key(OPENAI_FORM_METHOD));
         let send_elicitation = Arc::new(send_elicitation);
+        let send_custom_notification = Arc::new(send_custom_notification);
         Self {
             handler: LoggingClientHandler::new(
                 client_info,
                 clone_send_elicitation(Arc::clone(&send_elicitation)),
+                clone_send_custom_notification(Arc::clone(&send_custom_notification)),
             ),
             supports_openai_form,
             send_elicitation,
@@ -83,6 +87,12 @@ impl ElicitationClientService {
 
 fn clone_send_elicitation(send_elicitation: Arc<SendElicitation>) -> SendElicitation {
     Box::new(move |request_id, request| send_elicitation(request_id, request))
+}
+
+fn clone_send_custom_notification(
+    send_custom_notification: Arc<SendCustomNotification>,
+) -> SendCustomNotification {
+    Box::new(move |method, params| send_custom_notification(method, params))
 }
 
 impl Service<RoleClient> for ElicitationClientService {
