@@ -16,6 +16,7 @@ use codex_app_server_protocol::AccountRateLimitsUpdatedNotification;
 use codex_app_server_protocol::AdditionalPermissionProfile as V2AdditionalPermissionProfile;
 use codex_app_server_protocol::AgentMessageDeltaNotification;
 use codex_app_server_protocol::CodexErrorInfo as V2CodexErrorInfo;
+use codex_app_server_protocol::ChannelMessageNotification;
 use codex_app_server_protocol::CollabAgentState as V2CollabAgentStatus;
 use codex_app_server_protocol::CollabAgentTool;
 use codex_app_server_protocol::CollabAgentToolCallStatus as V2CollabToolCallStatus;
@@ -1244,6 +1245,13 @@ pub(crate) async fn apply_bespoke_event_handling(
             };
             outgoing
                 .send_server_notification(ServerNotification::DeprecationNotice(notification))
+                .await;
+        }
+        EventMsg::ChannelMessage(event) => {
+            outgoing
+                .send_global_server_notification(ServerNotification::ChannelMessage(
+                    ChannelMessageNotification { event },
+                ))
                 .await;
         }
         EventMsg::ReasoningContentDelta(event) => {
