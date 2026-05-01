@@ -114,6 +114,7 @@ pub(super) fn server_notification_thread_target(
         ServerNotification::ModelVerification(notification) => {
             Some(notification.thread_id.as_str())
         }
+        ServerNotification::ChannelMessage(_) => None,
         ServerNotification::ThreadRealtimeStarted(notification) => {
             Some(notification.thread_id.as_str())
         }
