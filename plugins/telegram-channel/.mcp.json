@@ -9,7 +9,14 @@
         "TELEGRAM_BOT_TOKEN",
         "TELEGRAM_ALLOWED_CHAT_IDS",
         "TELEGRAM_POLL_TIMEOUT_SEC"
-      ]
+      ],
+      "channel": {
+        "enabled": true,
+        "mode": "queue",
+        "queue_capacity": 50,
+        "dedupe_capacity": 200,
+        "rate_limit_per_minute": 30
+      }
     }
   }
 }

@@ -877,6 +877,7 @@ fn mcp_init_error_display_prompts_for_github_pat() {
             scopes: None,
             oauth_resource: None,
             tools: HashMap::new(),
+            channel: Default::default(),
         }),
         auth_status: McpAuthStatus::Unsupported,
     };
@@ -929,6 +930,7 @@ fn mcp_init_error_display_reports_generic_errors() {
             scopes: None,
             oauth_resource: None,
             tools: HashMap::new(),
+            channel: Default::default(),
         }),
         auth_status: McpAuthStatus::Unsupported,
     };

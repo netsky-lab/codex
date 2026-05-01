@@ -56,6 +56,68 @@ pub struct McpServerToolConfig {
     pub approval_mode: Option<AppToolApproval>,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum McpServerChannelMode {
+    /// Store and surface channel messages without submitting them to the model automatically.
+    Ask,
+    /// Submit accepted channel messages in arrival order.
+    #[default]
+    Queue,
+    /// Submit channel messages as soon as they arrive.
+    Immediate,
+    /// Only surface messages as session context.
+    Context,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
+#[schemars(deny_unknown_fields)]
+pub struct McpServerChannelConfig {
+    /// When `false`, custom MCP channel notifications are ignored.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub enabled: bool,
+    /// Delivery mode for accepted channel messages.
+    #[serde(default, skip_serializing_if = "is_default_channel_mode")]
+    pub mode: McpServerChannelMode,
+    /// Maximum accepted messages per short burst window before dropping excess messages.
+    #[serde(default = "default_channel_queue_capacity")]
+    pub queue_capacity: usize,
+    /// Number of recent message ids retained for duplicate suppression.
+    #[serde(default = "default_channel_dedupe_capacity")]
+    pub dedupe_capacity: usize,
+    /// Maximum accepted messages per minute.
+    #[serde(default = "default_channel_rate_limit_per_minute")]
+    pub rate_limit_per_minute: u32,
+}
+
+impl Default for McpServerChannelConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            mode: McpServerChannelMode::default(),
+            queue_capacity: default_channel_queue_capacity(),
+            dedupe_capacity: default_channel_dedupe_capacity(),
+            rate_limit_per_minute: default_channel_rate_limit_per_minute(),
+        }
+    }
+}
+
+fn is_default_channel_mode(mode: &McpServerChannelMode) -> bool {
+    *mode == McpServerChannelMode::default()
+}
+
+const fn default_channel_queue_capacity() -> usize {
+    50
+}
+
+const fn default_channel_dedupe_capacity() -> usize {
+    200
+}
+
+const fn default_channel_rate_limit_per_minute() -> u32 {
+    30
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
 #[serde(untagged, deny_unknown_fields)]
 pub enum McpServerEnvVar {
@@ -174,6 +236,10 @@ pub struct McpServerConfig {
     /// Per-tool approval settings keyed by tool name.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub tools: HashMap<String, McpServerToolConfig>,
+
+    /// Custom notification channel policy for this MCP server.
+    #[serde(default, skip_serializing_if = "is_default_channel_config")]
+    pub channel: McpServerChannelConfig,
 }
 
 /// Raw MCP config shape used for deserialization and supported-field JSON
@@ -239,6 +305,8 @@ pub struct RawMcpServerConfig {
     pub _name: Option<String>,
     #[serde(default)]
     pub tools: Option<HashMap<String, McpServerToolConfig>>,
+    #[serde(default)]
+    pub channel: Option<McpServerChannelConfig>,
 }
 
 impl TryFrom<RawMcpServerConfig> for McpServerConfig {
@@ -270,6 +338,7 @@ impl TryFrom<RawMcpServerConfig> for McpServerConfig {
             oauth_resource,
             _name: _,
             tools,
+            channel,
         } = raw;
 
         let startup_timeout_sec = match (startup_timeout_sec, startup_timeout_ms) {
@@ -340,6 +409,7 @@ impl TryFrom<RawMcpServerConfig> for McpServerConfig {
             scopes,
             oauth_resource,
             tools: tools.unwrap_or_default(),
+            channel: channel.unwrap_or_default(),
         })
     }
 }
@@ -357,6 +427,10 @@ impl<'de> Deserialize<'de> for McpServerConfig {
 
 const fn default_enabled() -> bool {
     true
+}
+
+fn is_default_channel_config(config: &McpServerChannelConfig) -> bool {
+    config == &McpServerChannelConfig::default()
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]

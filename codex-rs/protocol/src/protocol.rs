@@ -3167,6 +3167,8 @@ pub struct BackgroundEventEvent {
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ChannelMessageEvent {
+    pub id: String,
+    pub schema_version: u32,
     pub server: String,
     pub source: Option<String>,
     pub sender: Option<String>,
