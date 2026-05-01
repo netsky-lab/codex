@@ -8,7 +8,9 @@
       "env_vars": [
         "TELEGRAM_BOT_TOKEN",
         "TELEGRAM_ALLOWED_CHAT_IDS",
-        "TELEGRAM_POLL_TIMEOUT_SEC"
+        "TELEGRAM_ALLOW_ALL_CHATS",
+        "TELEGRAM_POLL_TIMEOUT_SEC",
+        "TELEGRAM_OFFSET_FILE"
       ],
       "channel": {
         "enabled": true,
