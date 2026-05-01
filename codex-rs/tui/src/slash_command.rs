@@ -48,6 +48,7 @@ pub enum SlashCommand {
     Statusline,
     Theme,
     Mcp,
+    Channels,
     Apps,
     Plugins,
     Logout,
@@ -123,6 +124,7 @@ impl SlashCommand {
             SlashCommand::AutoReview => "approve one retry of a recent auto-review denial",
             SlashCommand::Memories => "configure memory use and generation",
             SlashCommand::Mcp => "list configured MCP tools; use /mcp verbose for details",
+            SlashCommand::Channels => "show and control inbound MCP channels",
             SlashCommand::Apps => "manage apps",
             SlashCommand::Plugins => "browse plugins",
             SlashCommand::Logout => "log out of Codex",
@@ -147,6 +149,7 @@ impl SlashCommand {
                 | SlashCommand::Goal
                 | SlashCommand::Fast
                 | SlashCommand::Mcp
+                | SlashCommand::Channels
                 | SlashCommand::Side
                 | SlashCommand::Resume
                 | SlashCommand::SandboxReadRoot
@@ -157,7 +160,11 @@ impl SlashCommand {
     pub fn available_in_side_conversation(self) -> bool {
         matches!(
             self,
-            SlashCommand::Copy | SlashCommand::Diff | SlashCommand::Mention | SlashCommand::Status
+            SlashCommand::Copy
+            | SlashCommand::Diff
+            | SlashCommand::Mention
+            | SlashCommand::Status
+            | SlashCommand::Channels
         )
     }
 
@@ -197,6 +204,7 @@ impl SlashCommand {
             | SlashCommand::Stop
             | SlashCommand::Goal
             | SlashCommand::Mcp
+            | SlashCommand::Channels
             | SlashCommand::Apps
             | SlashCommand::Plugins
             | SlashCommand::Title

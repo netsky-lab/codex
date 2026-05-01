@@ -387,6 +387,9 @@ impl ChatWidget {
             SlashCommand::Mcp => {
                 self.add_mcp_output(McpServerStatusDetail::ToolsAndAuthOnly);
             }
+            SlashCommand::Channels => {
+                self.add_channels_status_output();
+            }
             SlashCommand::Apps => {
                 self.add_connectors_output();
             }
@@ -573,6 +576,9 @@ impl ChatWidget {
                 "verbose" => self.add_mcp_output(McpServerStatusDetail::Full),
                 _ => self.add_error_message("Usage: /mcp [verbose]".to_string()),
             },
+            SlashCommand::Channels => {
+                self.handle_channels_command_args(trimmed);
+            }
             SlashCommand::Rename if !trimmed.is_empty() => {
                 if !self.ensure_thread_rename_allowed() {
                     return;
@@ -840,6 +846,7 @@ impl ChatWidget {
             | SlashCommand::MemoryDrop
             | SlashCommand::MemoryUpdate
             | SlashCommand::Mcp
+            | SlashCommand::Channels
             | SlashCommand::Apps
             | SlashCommand::Plugins
             | SlashCommand::Rollout
