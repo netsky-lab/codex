@@ -27,8 +27,12 @@ let initialized = false;
 let polling = false;
 let updateOffset = 0;
 let lastChatId = null;
+let seenUpdates = 0;
 let acceptedUpdates = 0;
 let rejectedUpdates = 0;
+let ignoredUpdates = 0;
+let lastIgnoredReason = "none";
+let lastUpdateSummary = "none";
 const recentMessages = new Map();
 
 if (process.argv.includes("--self-test")) {
@@ -239,6 +243,8 @@ async function pollLoop() {
         allowed_updates: ["message"],
       });
       for (const update of result) {
+        seenUpdates += 1;
+        lastUpdateSummary = summarizeUpdate(update);
         updateOffset = Math.max(updateOffset, update.update_id + 1);
         await handleTelegramUpdate(update);
         await writeOffset(updateOffset);
@@ -251,8 +257,9 @@ async function pollLoop() {
 }
 
 async function handleTelegramUpdate(update) {
-  const message = update.message;
+  const message = update.message ?? update.edited_message ?? update.channel_post;
   if (!message?.chat?.id) {
+    ignoreUpdate("missing message.chat.id");
     return;
   }
 
@@ -264,6 +271,7 @@ async function handleTelegramUpdate(update) {
 
   const text = message.text ?? message.caption;
   if (!text) {
+    ignoreUpdate(`missing text/caption in ${Object.keys(message).join(",")}`);
     return;
   }
 
@@ -286,6 +294,11 @@ async function handleTelegramUpdate(update) {
     username: message.from?.username,
     first_name: message.from?.first_name,
   });
+}
+
+function ignoreUpdate(reason) {
+  ignoredUpdates += 1;
+  lastIgnoredReason = reason;
 }
 
 function chatAllowed(chatId) {
@@ -373,11 +386,33 @@ function statusText() {
     `allow_all_chats=${allowAllChats}`,
     `allowed_chats=${allowedChatIds.size}`,
     `offset=${updateOffset}`,
+    `seen_updates=${seenUpdates}`,
     `accepted_updates=${acceptedUpdates}`,
     `rejected_updates=${rejectedUpdates}`,
+    `ignored_updates=${ignoredUpdates}`,
+    `last_ignored_reason=${lastIgnoredReason}`,
+    `last_update=${lastUpdateSummary}`,
     `recent_routes=${recentMessages.size}`,
     `offset_file=${offsetFile}`,
   ].join("\n");
+}
+
+function summarizeUpdate(update) {
+  const message = update.message ?? update.edited_message ?? update.channel_post;
+  const keys = Object.keys(update).join(",");
+  if (!message) {
+    return `update_id=${update.update_id};keys=${keys}`;
+  }
+  const messageKeys = Object.keys(message).join(",");
+  return [
+    `update_id=${update.update_id}`,
+    `keys=${keys}`,
+    `chat_id=${message.chat?.id ?? "none"}`,
+    `message_id=${message.message_id ?? "none"}`,
+    `message_keys=${messageKeys}`,
+    `has_text=${Boolean(message.text)}`,
+    `has_caption=${Boolean(message.caption)}`,
+  ].join(";");
 }
 
 async function runSelfTest() {
