@@ -343,6 +343,7 @@ async fn run_codex_tool_session_inner(
                     | EventMsg::TerminalInteraction(_)
                     | EventMsg::ExecCommandOutputDelta(_)
                     | EventMsg::ExecCommandEnd(_)
+                    | EventMsg::ChannelMessage(_)
                     | EventMsg::StreamError(_)
                     | EventMsg::PatchApplyBegin(_)
                     | EventMsg::PatchApplyUpdated(_)
