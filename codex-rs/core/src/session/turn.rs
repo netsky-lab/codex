@@ -1478,6 +1478,7 @@ pub(super) fn realtime_text_for_event(msg: &EventMsg) -> Option<String> {
         | EventMsg::ApplyPatchApprovalRequest(_)
         | EventMsg::DeprecationNotice(_)
         | EventMsg::BackgroundEvent(_)
+        | EventMsg::ChannelMessage(_)
         | EventMsg::UndoStarted(_)
         | EventMsg::UndoCompleted(_)
         | EventMsg::StreamError(_)

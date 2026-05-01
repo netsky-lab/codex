@@ -1447,6 +1447,9 @@ pub enum EventMsg {
 
     BackgroundEvent(BackgroundEventEvent),
 
+    /// Inbound message pushed by an external MCP channel server.
+    ChannelMessage(ChannelMessageEvent),
+
     UndoStarted(UndoStartedEvent),
 
     UndoCompleted(UndoCompletedEvent),
@@ -3189,6 +3192,17 @@ pub struct TerminalInteractionEvent {
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, TS)]
 pub struct BackgroundEventEvent {
     pub message: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelMessageEvent {
+    pub server: String,
+    pub source: Option<String>,
+    pub sender: Option<String>,
+    pub text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<Value>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, TS)]

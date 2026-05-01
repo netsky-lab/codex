@@ -159,6 +159,7 @@ use codex_protocol::protocol::AgentStatus;
 use codex_protocol::protocol::ApplyPatchApprovalRequestEvent;
 #[cfg(test)]
 use codex_protocol::protocol::BackgroundEventEvent;
+use codex_protocol::protocol::ChannelMessageEvent;
 #[cfg(test)]
 use codex_protocol::protocol::CodexErrorInfo as CoreCodexErrorInfo;
 use codex_protocol::protocol::CollabAgentRef;
@@ -1246,6 +1247,36 @@ impl From<&str> for UserMessage {
             mention_bindings: Vec::new(),
         }
     }
+}
+
+fn format_channel_message_for_model(ev: ChannelMessageEvent) -> String {
+    let mut attrs = vec![format!("server=\"{}\"", escape_xml_attr(&ev.server))];
+    if let Some(source) = ev.source.as_deref() {
+        attrs.push(format!("source=\"{}\"", escape_xml_attr(source)));
+    }
+    if let Some(sender) = ev.sender.as_deref() {
+        attrs.push(format!("sender=\"{}\"", escape_xml_attr(sender)));
+    }
+    format!(
+        "<channel {}>\n{}\n</channel>",
+        attrs.join(" "),
+        escape_xml_text(&ev.text)
+    )
+}
+
+fn escape_xml_attr(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+fn escape_xml_text(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 struct PendingSteer {
@@ -5981,6 +6012,14 @@ impl ChatWidget {
         );
     }
 
+    fn on_channel_message(&mut self, ev: ChannelMessageEvent) {
+        let text = format_channel_message_for_model(ev);
+        let _ = self.submit_user_message_with_shell_escape_policy(
+            UserMessage::from(text),
+            ShellEscapePolicy::Disallow,
+        );
+    }
+
     fn submit_user_message_with_history_record(
         &mut self,
         user_message: UserMessage,
@@ -7556,6 +7595,7 @@ impl ChatWidget {
             EventMsg::BackgroundEvent(BackgroundEventEvent { message }) => {
                 self.on_background_event(message)
             }
+            EventMsg::ChannelMessage(ev) => self.on_channel_message(ev),
             EventMsg::UndoStarted(ev) => self.on_undo_started(ev),
             EventMsg::UndoCompleted(ev) => self.on_undo_completed(ev),
             EventMsg::StreamError(StreamErrorEvent {
