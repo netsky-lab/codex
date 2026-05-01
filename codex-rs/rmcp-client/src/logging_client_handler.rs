@@ -120,6 +120,13 @@ impl ClientHandler for LoggingClientHandler {
             data,
         } = params;
         let logger = logger.as_deref();
+        if logger == Some("codex-channel")
+            && let Some(method) = data.get("method").and_then(|value| value.as_str())
+        {
+            let params = data.get("params").cloned();
+            (self.send_custom_notification)(method.to_string(), params).await;
+            return;
+        }
         match level {
             LoggingLevel::Emergency
             | LoggingLevel::Alert

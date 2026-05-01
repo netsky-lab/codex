@@ -274,7 +274,7 @@ async function handleTelegramUpdate(update) {
     chatId,
     replyToMessageId: message.message_id,
   });
-  sendNotification("notifications/codex/channel", {
+  sendChannelNotification("notifications/codex/channel", {
     id: channelMessageId,
     schema_version: 1,
     source: "telegram",
@@ -415,6 +415,17 @@ function sendNotification(method, params) {
     jsonrpc: "2.0",
     method,
     params,
+  });
+}
+
+function sendChannelNotification(method, params) {
+  sendNotification("notifications/message", {
+    level: "info",
+    logger: "codex-channel",
+    data: {
+      method,
+      params,
+    },
   });
 }
 
