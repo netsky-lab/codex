@@ -7,10 +7,17 @@
 //! [`crate::connection_manager`].
 
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 use std::collections::HashMap;
+use std::collections::HashSet;
+use std::collections::VecDeque;
+use std::collections::hash_map::DefaultHasher;
 use std::env;
 use std::ffi::OsString;
+use std::hash::Hash;
+use std::hash::Hasher;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -43,6 +50,8 @@ use async_channel::Sender;
 use codex_api::SharedAuthProvider;
 use codex_async_utils::CancelErr;
 use codex_async_utils::OrCancelExt;
+use codex_config::McpServerChannelConfig;
+use codex_config::McpServerChannelMode;
 use codex_config::McpServerConfig;
 use codex_config::McpServerTransportConfig;
 use codex_config::types::AuthKeyringBackendKind;
@@ -65,6 +74,7 @@ use rmcp::model::ClientCapabilities;
 use rmcp::model::ElicitationCapability;
 use rmcp::model::Implementation;
 use rmcp::model::InitializeRequestParams;
+use rmcp::model::JsonObject;
 use rmcp::model::ProtocolVersion;
 use rmcp::model::Tool as RmcpTool;
 use serde_json::Value;
@@ -74,6 +84,7 @@ use tracing::warn;
 /// MCP server capability indicating that Codex should include [`SandboxState`]
 /// in tool-call request `_meta` under this key.
 pub const MCP_SANDBOX_STATE_META_CAPABILITY: &str = "codex/sandbox-state-meta";
+pub const MCP_CHANNEL_NOTIFICATIONS_CAPABILITY: &str = "codex/channel-notifications";
 
 pub(crate) const MCP_TOOLS_LIST_DURATION_METRIC: &str = "codex.mcp.tools.list.duration_ms";
 pub(crate) const MCP_TOOLS_FETCH_UNCACHED_DURATION_METRIC: &str =
@@ -204,6 +215,7 @@ impl AsyncManagedClient {
                             .and_then(|config| config.tool_timeout_sec)
                             .unwrap_or(DEFAULT_TOOL_TIMEOUT),
                         tool_filter: startup_tool_filter,
+                        channel_config: config.channel.clone(),
                         tx_event,
                         elicitation_requests,
                         codex_apps_tools_cache_context,
@@ -483,6 +495,7 @@ async fn start_server_task(
         startup_timeout,
         tool_timeout,
         tool_filter,
+        channel_config,
         tx_event,
         elicitation_requests,
         codex_apps_tools_cache_context,
@@ -490,6 +503,7 @@ async fn start_server_task(
     } = params;
     let mut capabilities = ClientCapabilities::default();
     capabilities.elicitation = Some(client_elicitation_capability);
+    capabilities.experimental = channel_capabilities(&channel_config);
     let params = InitializeRequestParams::new(
         capabilities,
         Implementation::new("codex-mcp-client", env!("CARGO_PKG_VERSION")).with_title("Codex"),
@@ -498,7 +512,7 @@ async fn start_server_task(
 
     let send_elicitation = elicitation_requests.make_sender(server_name.clone(), tx_event.clone());
     let send_custom_notification =
-        make_custom_notification_sender(server_name.clone(), tx_event.clone());
+        make_custom_notification_sender(server_name.clone(), channel_config, tx_event.clone());
 
     let initialize_result = client
         .initialize(
@@ -579,18 +593,68 @@ fn mcp_server_info_from_implementation(server_info: Implementation) -> McpServer
 
 fn make_custom_notification_sender(
     server_name: String,
+    channel_config: McpServerChannelConfig,
     tx_event: Sender<Event>,
 ) -> SendCustomNotification {
+    let state = Arc::new(Mutex::new(ChannelDeliveryState::new(
+        channel_config.dedupe_capacity,
+        channel_config.queue_capacity,
+    )));
     Box::new(move |method, params| {
         let server_name = server_name.clone();
+        let channel_config = channel_config.clone();
+        let state = Arc::clone(&state);
         let tx_event = tx_event.clone();
         async move {
             let Some(event) = channel_message_event(&server_name, &method, params) else {
                 return;
             };
+            let decision = {
+                let mut state = match state.lock() {
+                    Ok(state) => state,
+                    Err(err) => {
+                        warn!("failed to lock MCP channel delivery state: {err}");
+                        return;
+                    }
+                };
+                state.accept(&channel_config, &event)
+            };
+            match decision {
+                ChannelDeliveryDecision::Accept => {}
+                ChannelDeliveryDecision::Disabled => {
+                    warn!(
+                        server = %server_name,
+                        method = %method,
+                        "ignored MCP channel notification because this server has channel.enabled=false"
+                    );
+                    return;
+                }
+                ChannelDeliveryDecision::Duplicate => {
+                    warn!(
+                        server = %server_name,
+                        channel_message_id = %event.id,
+                        "ignored duplicate MCP channel notification"
+                    );
+                    return;
+                }
+                ChannelDeliveryDecision::QueueFull => {
+                    warn!(
+                        server = %server_name,
+                        "ignored MCP channel notification because the channel queue is full"
+                    );
+                    return;
+                }
+                ChannelDeliveryDecision::RateLimited => {
+                    warn!(
+                        server = %server_name,
+                        "ignored MCP channel notification because the channel rate limit was reached"
+                    );
+                    return;
+                }
+            }
             if let Err(err) = tx_event
                 .send(Event {
-                    id: "mcp_channel".to_string(),
+                    id: format!("mcp_channel_{}", event.id),
                     msg: EventMsg::ChannelMessage(event),
                 })
                 .await
@@ -600,6 +664,129 @@ fn make_custom_notification_sender(
         }
         .boxed()
     })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ChannelDeliveryDecision {
+    Accept,
+    Disabled,
+    Duplicate,
+    QueueFull,
+    RateLimited,
+}
+
+struct ChannelDeliveryState {
+    dedupe_capacity: usize,
+    seen_order: VecDeque<String>,
+    seen: HashSet<String>,
+    accepted_times: VecDeque<Instant>,
+    burst_times: VecDeque<Instant>,
+}
+
+impl ChannelDeliveryState {
+    fn new(dedupe_capacity: usize, _queue_capacity: usize) -> Self {
+        Self {
+            dedupe_capacity,
+            seen_order: VecDeque::new(),
+            seen: HashSet::new(),
+            accepted_times: VecDeque::new(),
+            burst_times: VecDeque::new(),
+        }
+    }
+
+    fn accept(
+        &mut self,
+        config: &McpServerChannelConfig,
+        event: &ChannelMessageEvent,
+    ) -> ChannelDeliveryDecision {
+        if !config.enabled {
+            return ChannelDeliveryDecision::Disabled;
+        }
+        if self.seen.contains(&event.id) {
+            return ChannelDeliveryDecision::Duplicate;
+        }
+
+        let now = Instant::now();
+        let burst_window = Duration::from_secs(10);
+        while self
+            .burst_times
+            .front()
+            .is_some_and(|accepted_at| now.duration_since(*accepted_at) >= burst_window)
+        {
+            self.burst_times.pop_front();
+        }
+        if config.queue_capacity > 0 && self.burst_times.len() >= config.queue_capacity {
+            return ChannelDeliveryDecision::QueueFull;
+        }
+
+        let rate_window = Duration::from_secs(60);
+        while self
+            .accepted_times
+            .front()
+            .is_some_and(|accepted_at| now.duration_since(*accepted_at) >= rate_window)
+        {
+            self.accepted_times.pop_front();
+        }
+        if config.rate_limit_per_minute > 0
+            && self.accepted_times.len() >= config.rate_limit_per_minute as usize
+        {
+            return ChannelDeliveryDecision::RateLimited;
+        }
+
+        if self.dedupe_capacity > 0 {
+            self.seen.insert(event.id.clone());
+            self.seen_order.push_back(event.id.clone());
+            while self.seen_order.len() > self.dedupe_capacity {
+                if let Some(expired) = self.seen_order.pop_front() {
+                    self.seen.remove(&expired);
+                }
+            }
+        }
+        self.accepted_times.push_back(now);
+        self.burst_times.push_back(now);
+        ChannelDeliveryDecision::Accept
+    }
+}
+
+fn channel_capabilities(
+    channel_config: &McpServerChannelConfig,
+) -> Option<BTreeMap<String, JsonObject>> {
+    if !channel_config.enabled {
+        return None;
+    }
+
+    let mut value = JsonObject::new();
+    value.insert("schemaVersion".to_string(), serde_json::json!(1));
+    value.insert(
+        "mode".to_string(),
+        serde_json::json!(channel_mode_name(channel_config.mode)),
+    );
+    value.insert(
+        "queueCapacity".to_string(),
+        serde_json::json!(channel_config.queue_capacity),
+    );
+    value.insert(
+        "dedupeCapacity".to_string(),
+        serde_json::json!(channel_config.dedupe_capacity),
+    );
+    value.insert(
+        "rateLimitPerMinute".to_string(),
+        serde_json::json!(channel_config.rate_limit_per_minute),
+    );
+
+    Some(BTreeMap::from([(
+        MCP_CHANNEL_NOTIFICATIONS_CAPABILITY.to_string(),
+        value,
+    )]))
+}
+
+fn channel_mode_name(mode: McpServerChannelMode) -> &'static str {
+    match mode {
+        McpServerChannelMode::Ask => "ask",
+        McpServerChannelMode::Queue => "queue",
+        McpServerChannelMode::Immediate => "immediate",
+        McpServerChannelMode::Context => "context",
+    }
 }
 
 fn channel_message_event(
@@ -615,8 +802,8 @@ fn channel_message_event(
     }
 
     let params = params.unwrap_or(Value::Null);
-    let (text, source, sender, metadata) = match params {
-        Value::String(text) => (text, None, None, None),
+    let (text, source, sender, id, schema_version, metadata) = match params {
+        Value::String(text) => (text, None, None, None, None, None),
         Value::Object(mut object) => {
             let text =
                 take_string(&mut object, "text").or_else(|| take_string(&mut object, "message"))?;
@@ -625,8 +812,17 @@ fn channel_message_event(
             let sender = take_string(&mut object, "sender")
                 .or_else(|| take_string(&mut object, "sender_id"))
                 .or_else(|| take_string(&mut object, "from"));
+            let id = take_string(&mut object, "id")
+                .or_else(|| take_string(&mut object, "message_id"))
+                .or_else(|| {
+                    let chat_id = object.get("chat_id")?;
+                    let message_id = object.get("telegram_message_id")?;
+                    Some(format!("{chat_id}:{message_id}"))
+                });
+            let schema_version = take_u32(&mut object, "schema_version")
+                .or_else(|| take_u32(&mut object, "schemaVersion"));
             let metadata = (!object.is_empty()).then_some(Value::Object(object));
-            (text, source, sender, metadata)
+            (text, source, sender, id, schema_version, metadata)
         }
         _ => return None,
     };
@@ -636,12 +832,22 @@ fn channel_message_event(
     }
 
     Some(ChannelMessageEvent {
+        id: id.unwrap_or_else(|| fallback_channel_message_id(server_name, method, &text)),
+        schema_version: schema_version.unwrap_or(1),
         server: server_name.to_string(),
         source,
         sender,
         text,
         metadata,
     })
+}
+
+fn fallback_channel_message_id(server_name: &str, method: &str, text: &str) -> String {
+    let mut hasher = DefaultHasher::new();
+    server_name.hash(&mut hasher);
+    method.hash(&mut hasher);
+    text.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
 }
 
 fn take_string(object: &mut serde_json::Map<String, Value>, key: &str) -> Option<String> {
@@ -652,9 +858,20 @@ fn take_string(object: &mut serde_json::Map<String, Value>, key: &str) -> Option
     }
 }
 
+fn take_u32(object: &mut serde_json::Map<String, Value>, key: &str) -> Option<u32> {
+    match object.remove(key) {
+        Some(Value::Number(value)) => value.as_u64().and_then(|value| u32::try_from(value).ok()),
+        Some(Value::String(value)) => value.parse().ok(),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod channel_notification_tests {
+    use super::ChannelDeliveryDecision;
+    use super::ChannelDeliveryState;
     use super::channel_message_event;
+    use codex_config::McpServerChannelConfig;
     use serde_json::json;
 
     #[test]
@@ -672,6 +889,8 @@ mod channel_notification_tests {
         .expect("expected channel event");
 
         assert_eq!(event.server, "telegram-channel");
+        assert!(!event.id.is_empty());
+        assert_eq!(event.schema_version, 1);
         assert_eq!(event.source.as_deref(), Some("telegram"));
         assert_eq!(event.sender.as_deref(), Some("42"));
         assert_eq!(event.text, "hello");
@@ -696,12 +915,78 @@ mod channel_notification_tests {
             .is_none()
         );
     }
+
+    #[test]
+    fn channel_delivery_defaults_to_disabled() {
+        let event = channel_message_event(
+            "telegram-channel",
+            "notifications/codex/channel",
+            Some(json!({"text": "hello", "id": "m1"})),
+        )
+        .expect("expected channel event");
+        let mut state = ChannelDeliveryState::new(10, 10);
+
+        assert_eq!(
+            state.accept(&McpServerChannelConfig::default(), &event),
+            ChannelDeliveryDecision::Disabled
+        );
+    }
+
+    #[test]
+    fn channel_delivery_deduplicates_message_ids() {
+        let config = McpServerChannelConfig {
+            enabled: true,
+            ..Default::default()
+        };
+        let event = channel_message_event(
+            "telegram-channel",
+            "notifications/codex/channel",
+            Some(json!({"text": "hello", "id": "m1"})),
+        )
+        .expect("expected channel event");
+        let mut state = ChannelDeliveryState::new(10, 10);
+
+        assert_eq!(state.accept(&config, &event), ChannelDeliveryDecision::Accept);
+        assert_eq!(
+            state.accept(&config, &event),
+            ChannelDeliveryDecision::Duplicate
+        );
+    }
+
+    #[test]
+    fn channel_delivery_applies_rate_limit() {
+        let config = McpServerChannelConfig {
+            enabled: true,
+            rate_limit_per_minute: 1,
+            ..Default::default()
+        };
+        let first = channel_message_event(
+            "telegram-channel",
+            "notifications/codex/channel",
+            Some(json!({"text": "hello", "id": "m1"})),
+        )
+        .expect("expected channel event");
+        let second = channel_message_event(
+            "telegram-channel",
+            "notifications/codex/channel",
+            Some(json!({"text": "world", "id": "m2"})),
+        )
+        .expect("expected channel event");
+        let mut state = ChannelDeliveryState::new(10, 10);
+
+        assert_eq!(state.accept(&config, &first), ChannelDeliveryDecision::Accept);
+        assert_eq!(
+            state.accept(&config, &second),
+            ChannelDeliveryDecision::RateLimited
+        );
+    }
 }
 
 struct StartServerTaskParams {
     startup_timeout: Option<Duration>, // TODO: cancel_token should handle this.
     tool_timeout: Duration,
     tool_filter: ToolFilter,
+    channel_config: McpServerChannelConfig,
     tx_event: Sender<Event>,
     elicitation_requests: ElicitationRequestManager,
     codex_apps_tools_cache_context: Option<CodexAppsToolsCacheContext>,
