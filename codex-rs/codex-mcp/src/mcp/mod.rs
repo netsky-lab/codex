@@ -502,6 +502,7 @@ fn mcp_server_config_for_url(url: String, apps_mcp_product_sku: Option<&str>) ->
         oauth: None,
         oauth_resource: None,
         tools: HashMap::new(),
+        channel: Default::default(),
     }
 }
 
