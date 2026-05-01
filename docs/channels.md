@@ -44,7 +44,8 @@ dropped with an audit entry in the TUI history.
 
 ## Notification Protocol
 
-Channel servers send JSON-RPC notifications with one of these methods:
+Channel servers can send JSON-RPC notifications with one of these methods when
+the MCP transport preserves custom notifications:
 
 ```text
 notifications/codex/channel
@@ -70,6 +71,28 @@ Params may be a string or an object. Object params should use this schema:
 Codex ignores empty text, deduplicates by `id`, rate-limits accepted messages,
 and submits accepted messages to the model as structured JSON user input with
 shell escapes disabled.
+
+For stdio MCP servers using transports that drop non-standard notifications,
+wrap the channel notification in a standard logging notification:
+
+```json
+{
+  "method": "notifications/message",
+  "params": {
+    "level": "info",
+    "logger": "codex-channel",
+    "data": {
+      "method": "notifications/codex/channel",
+      "params": {
+        "id": "telegram:123:456",
+        "schema_version": 1,
+        "source": "telegram",
+        "text": "message text"
+      }
+    }
+  }
+}
+```
 
 ## Telegram Plugin
 
