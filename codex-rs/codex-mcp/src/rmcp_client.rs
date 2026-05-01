@@ -50,10 +50,13 @@ use codex_config::types::OAuthCredentialsStoreMode;
 use codex_exec_server::HttpClient;
 use codex_exec_server::ReqwestHttpClient;
 use codex_protocol::mcp::McpServerInfo;
+use codex_protocol::protocol::ChannelMessageEvent;
 use codex_protocol::protocol::Event;
+use codex_protocol::protocol::EventMsg;
 use codex_rmcp_client::ExecutorStdioServerLauncher;
 use codex_rmcp_client::LocalStdioServerLauncher;
 use codex_rmcp_client::RmcpClient;
+use codex_rmcp_client::SendCustomNotification;
 use codex_rmcp_client::StdioServerLauncher;
 use futures::future::BoxFuture;
 use futures::future::FutureExt;
@@ -64,6 +67,7 @@ use rmcp::model::Implementation;
 use rmcp::model::InitializeRequestParams;
 use rmcp::model::ProtocolVersion;
 use rmcp::model::Tool as RmcpTool;
+use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
 
@@ -492,10 +496,17 @@ async fn start_server_task(
     )
     .with_protocol_version(ProtocolVersion::V_2025_06_18);
 
-    let send_elicitation = elicitation_requests.make_sender(server_name.clone(), tx_event);
+    let send_elicitation = elicitation_requests.make_sender(server_name.clone(), tx_event.clone());
+    let send_custom_notification =
+        make_custom_notification_sender(server_name.clone(), tx_event.clone());
 
     let initialize_result = client
-        .initialize(params, startup_timeout, send_elicitation)
+        .initialize(
+            params,
+            startup_timeout,
+            send_elicitation,
+            send_custom_notification,
+        )
         .await
         .map_err(StartupOutcomeError::from)?;
 
@@ -563,6 +574,127 @@ fn mcp_server_info_from_implementation(server_info: Implementation) -> McpServer
                 .collect()
         }),
         website_url: server_info.website_url,
+    }
+}
+
+fn make_custom_notification_sender(
+    server_name: String,
+    tx_event: Sender<Event>,
+) -> SendCustomNotification {
+    Box::new(move |method, params| {
+        let server_name = server_name.clone();
+        let tx_event = tx_event.clone();
+        async move {
+            let Some(event) = channel_message_event(&server_name, &method, params) else {
+                return;
+            };
+            if let Err(err) = tx_event
+                .send(Event {
+                    id: "mcp_channel".to_string(),
+                    msg: EventMsg::ChannelMessage(event),
+                })
+                .await
+            {
+                warn!("failed to forward MCP channel notification: {err}");
+            }
+        }
+        .boxed()
+    })
+}
+
+fn channel_message_event(
+    server_name: &str,
+    method: &str,
+    params: Option<Value>,
+) -> Option<ChannelMessageEvent> {
+    if !matches!(
+        method,
+        "notifications/codex/channel" | "notifications/claude/channel" | "notifications/channel"
+    ) {
+        return None;
+    }
+
+    let params = params.unwrap_or(Value::Null);
+    let (text, source, sender, metadata) = match params {
+        Value::String(text) => (text, None, None, None),
+        Value::Object(mut object) => {
+            let text =
+                take_string(&mut object, "text").or_else(|| take_string(&mut object, "message"))?;
+            let source =
+                take_string(&mut object, "source").or_else(|| take_string(&mut object, "channel"));
+            let sender = take_string(&mut object, "sender")
+                .or_else(|| take_string(&mut object, "sender_id"))
+                .or_else(|| take_string(&mut object, "from"));
+            let metadata = (!object.is_empty()).then_some(Value::Object(object));
+            (text, source, sender, metadata)
+        }
+        _ => return None,
+    };
+
+    if text.trim().is_empty() {
+        return None;
+    }
+
+    Some(ChannelMessageEvent {
+        server: server_name.to_string(),
+        source,
+        sender,
+        text,
+        metadata,
+    })
+}
+
+fn take_string(object: &mut serde_json::Map<String, Value>, key: &str) -> Option<String> {
+    match object.remove(key) {
+        Some(Value::String(value)) if !value.is_empty() => Some(value),
+        Some(value) if !value.is_null() => Some(value.to_string()),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod channel_notification_tests {
+    use super::channel_message_event;
+    use serde_json::json;
+
+    #[test]
+    fn parses_codex_channel_notification() {
+        let event = channel_message_event(
+            "telegram-channel",
+            "notifications/codex/channel",
+            Some(json!({
+                "source": "telegram",
+                "text": "hello",
+                "sender": 42,
+                "chat_id": "1001"
+            })),
+        )
+        .expect("expected channel event");
+
+        assert_eq!(event.server, "telegram-channel");
+        assert_eq!(event.source.as_deref(), Some("telegram"));
+        assert_eq!(event.sender.as_deref(), Some("42"));
+        assert_eq!(event.text, "hello");
+        assert_eq!(
+            event
+                .metadata
+                .as_ref()
+                .and_then(|value| value.get("chat_id"))
+                .and_then(|value| value.as_str()),
+            Some("1001")
+        );
+    }
+
+    #[test]
+    fn ignores_unrelated_custom_notification() {
+        assert!(
+            channel_message_event(
+                "telegram-channel",
+                "notifications/message",
+                Some(json!({"text": "hello"})),
+            )
+            .is_none()
+        );
     }
 }
 

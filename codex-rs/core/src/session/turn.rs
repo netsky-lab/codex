@@ -1469,6 +1469,7 @@ pub(super) fn realtime_text_for_event(msg: &EventMsg) -> Option<String> {
         | EventMsg::ElicitationRequest(_)
         | EventMsg::ApplyPatchApprovalRequest(_)
         | EventMsg::DeprecationNotice(_)
+        | EventMsg::ChannelMessage(_)
         | EventMsg::StreamError(_)
         | EventMsg::TurnDiff(_)
         | EventMsg::RealtimeConversationListVoicesResponse(_)
