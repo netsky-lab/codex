@@ -311,6 +311,7 @@ async fn run_add(config_overrides: &CliConfigOverrides, add_args: AddArgs) -> Re
         scopes: None,
         oauth_resource: None,
         tools: HashMap::new(),
+        channel: Default::default(),
     };
 
     servers.insert(name.clone(), new_entry);
