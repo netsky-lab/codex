@@ -246,6 +246,7 @@ pub(super) async fn make_chatwidget_manual(
         mcp_startup_allow_terminal_only_next_round: false,
         mcp_startup_pending_next_round: HashMap::new(),
         mcp_startup_pending_next_round_saw_starting: false,
+        channel_ui: ChannelUiState::default(),
         connectors_cache: ConnectorsCacheState::default(),
         connectors_partial_snapshot: None,
         plugin_install_apps_needing_auth: Vec::new(),

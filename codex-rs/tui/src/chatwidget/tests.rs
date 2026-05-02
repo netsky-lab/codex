@@ -221,6 +221,44 @@ macro_rules! assert_chatwidget_snapshot {
     }};
 }
 
+#[test]
+fn channel_message_model_payload_keeps_routing_metadata() {
+    let event = ChannelMessageEvent {
+        id: "telegram:123:456".to_string(),
+        schema_version: 1,
+        server: "telegram-channel".to_string(),
+        source: Some("telegram".to_string()),
+        sender: Some("123".to_string()),
+        text: "ping".to_string(),
+        metadata: Some(serde_json::json!({ "chat_id": "123" })),
+    };
+
+    let model_text = format_channel_message_for_model(&event);
+
+    assert!(model_text.contains("\"id\": \"telegram:123:456\""));
+    assert!(model_text.contains("\"chat_id\": \"123\""));
+    assert!(model_text.contains("\"text\": \"ping\""));
+}
+
+#[test]
+fn channel_message_display_hides_raw_json() {
+    let event = ChannelMessageEvent {
+        id: "telegram:123:456".to_string(),
+        schema_version: 1,
+        server: "telegram-channel".to_string(),
+        source: Some("telegram".to_string()),
+        sender: Some("123".to_string()),
+        text: "ping".to_string(),
+        metadata: Some(serde_json::json!({ "chat_id": "123" })),
+    };
+
+    let display_text = format_channel_message_for_display(&event);
+
+    assert_eq!(display_text, "Inbound telegram message from 123:\nping");
+    assert!(!display_text.contains("```json"));
+    assert!(!display_text.contains("chat_id"));
+}
+
 mod app_server;
 mod approval_requests;
 mod composer_submission;
