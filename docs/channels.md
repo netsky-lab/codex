@@ -122,6 +122,9 @@ Accepted inbound messages get a Telegram 👀 reaction by default; set
 Incoming Telegram files are downloaded under
 `$CODEX_HOME/telegram-channel-files` unless `TELEGRAM_DOWNLOAD_DIR` is set.
 `TELEGRAM_MAX_DOWNLOAD_BYTES` defaults to 20 MiB.
+Group messages include `bot`, `reply_to`, and `addressing` metadata so agents
+in multi-bot chats can distinguish explicit mentions, commands, replies to this
+bot, and replies to other bots. These are routing hints, not hard filters.
 It exposes:
 
 - `telegram_reply`: replies by `channel_message_id`, explicit `chat_id`, or the

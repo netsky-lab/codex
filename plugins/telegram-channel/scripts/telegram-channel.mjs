@@ -43,6 +43,7 @@ let rejectedUpdates = 0;
 let ignoredUpdates = 0;
 let lastIgnoredReason = "none";
 let lastUpdateSummary = "none";
+let botIdentity = null;
 const recentMessages = new Map();
 
 if (process.argv.includes("--self-test")) {
@@ -101,11 +102,11 @@ async function handleRequest(message) {
         },
         serverInfo: {
           name: "telegram-channel",
-          version: "0.3.0",
+          version: "0.4.0",
           title: "Telegram Channel",
         },
         instructions:
-          "Telegram messages arrive as JSON channel user input. Use telegram_typing before longer work and telegram_reply with channel_message_id to answer the originating Telegram chat.",
+          "Telegram messages arrive as JSON channel user input. Use telegram_typing before longer work and telegram_reply with channel_message_id to answer the originating Telegram chat. In groups, inspect metadata.addressing and metadata.reply_to: prefer replying when probably_addressed_to_bot is true or the conversation context clearly asks this bot, and avoid replying to messages addressed to a different bot.",
       });
       break;
     case "ping":
@@ -454,6 +455,7 @@ async function pollLoop() {
     return;
   }
 
+  await ensureBotIdentity();
   updateOffset = await readOffset();
 
   for (;;) {
@@ -500,6 +502,9 @@ async function handleTelegramUpdate(update) {
   lastChatId = chatId;
   acceptedUpdates += 1;
   const channelMessageId = `telegram:${chatId}:${message.message_id}`;
+  const replyTo = summarizeReplyToMessage(message.reply_to_message);
+  const sender = summarizeTelegramUser(message.from);
+  const addressing = computeAddressing(message, text, replyTo);
   rememberMessage(channelMessageId, {
     chatId,
     messageId: message.message_id,
@@ -520,11 +525,154 @@ async function handleTelegramUpdate(update) {
     text,
     attachments,
     sender: String(message.from?.id ?? chatId),
+    sender_details: sender,
+    bot: botIdentity,
+    reply_to: replyTo,
+    addressing,
     chat_id: chatId,
     telegram_message_id: message.message_id,
     username: message.from?.username,
     first_name: message.from?.first_name,
   });
+}
+
+async function ensureBotIdentity() {
+  if (botIdentity || !token) {
+    return botIdentity;
+  }
+  const me = await telegram("getMe", {});
+  botIdentity = {
+    id: String(me.id),
+    username: me.username,
+    first_name: me.first_name,
+    can_join_groups: me.can_join_groups,
+    can_read_all_group_messages: me.can_read_all_group_messages,
+  };
+  return botIdentity;
+}
+
+function summarizeTelegramUser(user) {
+  if (!user) {
+    return null;
+  }
+  return {
+    id: String(user.id),
+    is_bot: Boolean(user.is_bot),
+    username: user.username,
+    first_name: user.first_name,
+    last_name: user.last_name,
+    language_code: user.language_code,
+  };
+}
+
+function summarizeReplyToMessage(message) {
+  if (!message) {
+    return null;
+  }
+  return {
+    message_id: message.message_id,
+    sender: summarizeTelegramUser(message.from),
+    chat_id: message.chat?.id !== undefined ? String(message.chat.id) : undefined,
+    text: message.text ?? message.caption,
+    has_attachments: hasTelegramAttachment(message),
+  };
+}
+
+function computeAddressing(message, text, replyTo) {
+  const botId = botIdentity?.id;
+  const botUsername = botIdentity?.username;
+  const mentionedUsernames = mentionedUsernamesFromMessage(message);
+  const command = commandFromMessage(message);
+  const commandTarget = command?.target_username;
+  const isPrivateChat = message.chat?.type === "private";
+  const isReplyToBot = Boolean(botId && replyTo?.sender?.id === botId);
+  const isReplyToOtherBot = Boolean(replyTo?.sender?.is_bot && !isReplyToBot);
+  const mentionsBot = Boolean(
+    botUsername
+      && mentionedUsernames.some((username) => username.toLowerCase() === botUsername.toLowerCase()),
+  );
+  const commandToBot = Boolean(
+    command
+      && (isPrivateChat
+        || (botUsername
+          && commandTarget
+          && commandTarget.toLowerCase() === botUsername.toLowerCase())),
+  );
+  const commandToOtherBot = Boolean(
+    commandTarget
+      && (!botUsername || commandTarget.toLowerCase() !== botUsername.toLowerCase()),
+  );
+  const probablyAddressedToBot = Boolean(
+    isPrivateChat || isReplyToBot || mentionsBot || commandToBot,
+  );
+
+  return {
+    bot_id: botId,
+    bot_username: botUsername,
+    chat_type: message.chat?.type,
+    is_private_chat: isPrivateChat,
+    is_reply: Boolean(replyTo),
+    is_reply_to_bot: isReplyToBot,
+    is_reply_to_other_bot: isReplyToOtherBot,
+    mentioned_usernames: mentionedUsernames,
+    mentions_bot: mentionsBot,
+    command: command?.command,
+    command_target_username: commandTarget,
+    command_is_unqualified: Boolean(command && !commandTarget),
+    command_to_bot: commandToBot,
+    command_to_other_bot: commandToOtherBot,
+    probably_addressed_to_bot: probablyAddressedToBot,
+    text_starts_with_bot_mention: startsWithBotMention(text, botUsername),
+  };
+}
+
+function mentionedUsernamesFromMessage(message) {
+  const text = message.text ?? message.caption ?? "";
+  const entities = [...(message.entities ?? []), ...(message.caption_entities ?? [])];
+  const usernames = [];
+  for (const entity of entities) {
+    if (entity.type !== "mention") {
+      continue;
+    }
+    const mention = text.slice(entity.offset, entity.offset + entity.length);
+    if (mention.startsWith("@")) {
+      usernames.push(mention.slice(1));
+    }
+  }
+  return usernames;
+}
+
+function commandFromMessage(message) {
+  const text = message.text ?? "";
+  const entities = message.entities ?? [];
+  const commandEntity = entities.find((entity) => entity.type === "bot_command" && entity.offset === 0);
+  if (!commandEntity) {
+    return null;
+  }
+  const token = text.slice(commandEntity.offset, commandEntity.offset + commandEntity.length);
+  const [command, target] = token.slice(1).split("@", 2);
+  return {
+    command,
+    target_username: target,
+  };
+}
+
+function startsWithBotMention(text, botUsername) {
+  if (!botUsername) {
+    return false;
+  }
+  return String(text ?? "").trimStart().toLowerCase().startsWith(`@${botUsername.toLowerCase()}`);
+}
+
+function hasTelegramAttachment(message) {
+  return Boolean(
+    message?.photo
+      || message?.document
+      || message?.animation
+      || message?.video
+      || message?.audio
+      || message?.voice,
+  );
 }
 
 async function collectTelegramAttachments(message, chatId) {
@@ -813,6 +961,8 @@ function statusText() {
     `recent_routes=${recentMessages.size}`,
     `offset_file=${offsetFile}`,
     `download_dir=${downloadDir}`,
+    `bot_username=${botIdentity?.username ?? "unknown"}`,
+    `bot_id=${botIdentity?.id ?? "unknown"}`,
   ];
 
   if (telegramDebug) {
@@ -863,6 +1013,39 @@ async function runSelfTest() {
   }
   if (sanitizeFileName("../bad:name.png") !== "..-bad-name.png") {
     throw new Error("sanitizeFileName self-test failed");
+  }
+  botIdentity = { id: "42", username: "syncera_research_bot" };
+  const addressed = computeAddressing(
+    {
+      chat: { type: "supergroup" },
+      text: "/ping@syncera_research_bot",
+      entities: [{ type: "bot_command", offset: 0, length: 26 }],
+    },
+    "/ping@syncera_research_bot",
+    null,
+  );
+  if (!addressed.command_to_bot || !addressed.probably_addressed_to_bot) {
+    throw new Error("computeAddressing command self-test failed");
+  }
+  const unqualifiedGroupCommand = computeAddressing(
+    {
+      chat: { type: "supergroup" },
+      text: "/ping",
+      entities: [{ type: "bot_command", offset: 0, length: 5 }],
+    },
+    "/ping",
+    null,
+  );
+  if (!unqualifiedGroupCommand.command_is_unqualified || unqualifiedGroupCommand.command_to_bot) {
+    throw new Error("computeAddressing unqualified group command self-test failed");
+  }
+  const replyToOtherBot = computeAddressing(
+    { chat: { type: "supergroup" }, text: "не тебе" },
+    "не тебе",
+    { sender: { id: "100", is_bot: true } },
+  );
+  if (!replyToOtherBot.is_reply_to_other_bot || replyToOtherBot.probably_addressed_to_bot) {
+    throw new Error("computeAddressing other bot reply self-test failed");
   }
   const status = statusText();
   const hasDebugStatus = status.includes("last_update=");
