@@ -734,9 +734,24 @@ struct ChannelUiState {
     submitted: usize,
     dropped: usize,
     queued: VecDeque<ChannelMessageEvent>,
+    recent_ids: VecDeque<String>,
+    recent_id_set: HashSet<String>,
 }
 
 impl ChannelUiState {
+    fn remember_message_id(&mut self, id: &str) -> bool {
+        if !self.recent_id_set.insert(id.to_string()) {
+            return false;
+        }
+        self.recent_ids.push_back(id.to_string());
+        while self.recent_ids.len() > 200 {
+            if let Some(oldest) = self.recent_ids.pop_front() {
+                self.recent_id_set.remove(&oldest);
+            }
+        }
+        true
+    }
+
     fn status_summary(&self) -> String {
         let state = if self.muted {
             "muted"
@@ -1101,6 +1116,7 @@ pub(crate) struct ChatWidget {
     external_editor_state: ExternalEditorState,
     realtime_conversation: RealtimeConversationUiState,
     last_rendered_user_message_event: Option<RenderedUserMessageEvent>,
+    last_rendered_user_message_alternate_event: Option<RenderedUserMessageEvent>,
     last_non_retry_error: Option<(String, String)>,
 }
 
@@ -5540,6 +5556,7 @@ impl ChatWidget {
             external_editor_state: ExternalEditorState::Closed,
             realtime_conversation: RealtimeConversationUiState::default(),
             last_rendered_user_message_event: None,
+            last_rendered_user_message_alternate_event: None,
             last_non_retry_error: None,
         };
 
@@ -6092,6 +6109,9 @@ impl ChatWidget {
 
     #[allow(dead_code)]
     pub(crate) fn on_channel_message(&mut self, ev: ChannelMessageEvent) {
+        if !self.channel_ui.remember_message_id(&ev.id) {
+            return;
+        }
         self.channel_ui.received = self.channel_ui.received.saturating_add(1);
         if self.channel_ui.muted {
             self.channel_ui.dropped = self.channel_ui.dropped.saturating_add(1);
@@ -6539,11 +6559,18 @@ impl ChatWidget {
                 mention_bindings: _,
             } = display_user_message;
             if !text.is_empty() {
+                let display_user_message_event = Self::rendered_user_message_event_from_parts(
+                    text.clone(),
+                    text_elements.clone(),
+                    local_images.iter().map(|img| img.path.clone()).collect(),
+                    remote_image_urls.clone(),
+                );
                 let local_image_paths = local_images
                     .into_iter()
                     .map(|img| img.path)
                     .collect::<Vec<_>>();
                 self.last_rendered_user_message_event = submitted_user_message_event.clone();
+                self.last_rendered_user_message_alternate_event = Some(display_user_message_event);
                 self.add_to_history(history_cell::new_user_prompt(
                     text,
                     text_elements,
@@ -6553,6 +6580,7 @@ impl ChatWidget {
                 self.record_visible_user_turn_for_copy();
             } else if !remote_image_urls.is_empty() {
                 self.last_rendered_user_message_event = submitted_user_message_event;
+                self.last_rendered_user_message_alternate_event = None;
                 self.add_to_history(history_cell::new_user_prompt(
                     String::new(),
                     Vec::new(),
@@ -7972,22 +8000,26 @@ impl ChatWidget {
                 let pending_event =
                     user_message_event_for_display(pending.user_message, &pending.history_record);
                 self.on_user_message_event(pending_event);
-            } else if self.last_rendered_user_message_event.as_ref() != Some(&rendered) {
+            } else if !self.user_message_event_was_rendered(&rendered) {
                 tracing::warn!(
                     "pending steer matched compare key but queue was empty when rendering committed user message"
                 );
                 self.on_user_message_event(event);
             }
-        } else if !self.is_review_mode
-            && self.last_rendered_user_message_event.as_ref() != Some(&rendered)
-        {
+        } else if !self.is_review_mode && !self.user_message_event_was_rendered(&rendered) {
             self.on_user_message_event(event);
         }
+    }
+
+    fn user_message_event_was_rendered(&self, rendered: &RenderedUserMessageEvent) -> bool {
+        self.last_rendered_user_message_event.as_ref() == Some(rendered)
+            || self.last_rendered_user_message_alternate_event.as_ref() == Some(rendered)
     }
 
     fn on_user_message_event(&mut self, event: UserMessageEvent) {
         self.last_rendered_user_message_event =
             Some(Self::rendered_user_message_event_from_event(&event));
+        self.last_rendered_user_message_alternate_event = None;
         let remote_image_urls = event.images.unwrap_or_default();
         if !event.message.trim().is_empty()
             || !event.text_elements.is_empty()
