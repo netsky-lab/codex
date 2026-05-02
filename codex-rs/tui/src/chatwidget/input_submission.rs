@@ -4,7 +4,7 @@ use codex_protocol::protocol::ChannelMessageEvent;
 
 use super::*;
 
-fn format_channel_message_for_model(ev: ChannelMessageEvent) -> String {
+pub(super) fn format_channel_message_for_model(ev: &ChannelMessageEvent) -> String {
     let value = serde_json::json!({
         "type": "channel_message",
         "schema_version": ev.schema_version,
@@ -19,7 +19,7 @@ fn format_channel_message_for_model(ev: ChannelMessageEvent) -> String {
     format!("Inbound channel message:\n```json\n{json}\n```")
 }
 
-fn channel_message_history_text(ev: &ChannelMessageEvent) -> String {
+pub(super) fn format_channel_message_for_display(ev: &ChannelMessageEvent) -> String {
     let source = ev.source.as_deref().unwrap_or(ev.server.as_str());
     match ev.sender.as_deref() {
         Some(sender) if !sender.is_empty() => {
@@ -31,8 +31,8 @@ fn channel_message_history_text(ev: &ChannelMessageEvent) -> String {
 
 impl ChatWidget {
     pub(crate) fn on_channel_message(&mut self, ev: ChannelMessageEvent) {
-        let history_text = channel_message_history_text(&ev);
-        let text = format_channel_message_for_model(ev);
+        let history_text = format_channel_message_for_display(&ev);
+        let text = format_channel_message_for_model(&ev);
         let _ = self.submit_user_message_with_history_and_shell_escape_policy(
             UserMessage::from(text),
             UserMessageHistoryRecord::Override(UserMessageHistoryOverride {
