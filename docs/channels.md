@@ -17,6 +17,7 @@ env_vars = [
   "TELEGRAM_ALLOWED_CHAT_IDS",
   "TELEGRAM_POLL_TIMEOUT_SEC",
   "TELEGRAM_OFFSET_FILE",
+  "TELEGRAM_DEBUG",
 ]
 
 [mcp_servers.telegram-channel.channel]
@@ -111,6 +112,8 @@ export TELEGRAM_ALLOW_ALL_CHATS=1
 
 The plugin persists Telegram offsets at
 `$CODEX_HOME/telegram-channel-offset.json` unless `TELEGRAM_OFFSET_FILE` is set.
+Set `TELEGRAM_DEBUG=1` during bridge debugging to include update-level
+diagnostics in `telegram_status`; normal status output keeps those details out.
 It exposes:
 
 - `telegram_reply`: replies by `channel_message_id`, explicit `chat_id`, or the
