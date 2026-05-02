@@ -6502,7 +6502,22 @@ impl ChatWidget {
             self.refresh_pending_input_preview();
         }
 
-        // Show replayable user content in conversation history.
+        // Show replayable user content in conversation history. When display
+        // text is overridden, keep the dedupe marker tied to the submitted
+        // payload so the later committed UserMessage event does not render the
+        // raw payload a second time.
+        let submitted_user_message_event = render_in_history.then(|| {
+            let local_image_paths = local_images
+                .iter()
+                .map(|img| img.path.clone())
+                .collect::<Vec<_>>();
+            Self::rendered_user_message_event_from_parts(
+                text.clone(),
+                text_elements.clone(),
+                local_image_paths,
+                remote_image_urls.clone(),
+            )
+        });
         let display_user_message = render_in_history.then(|| {
             user_message_for_restore(
                 UserMessage {
@@ -6528,13 +6543,7 @@ impl ChatWidget {
                     .into_iter()
                     .map(|img| img.path)
                     .collect::<Vec<_>>();
-                self.last_rendered_user_message_event =
-                    Some(Self::rendered_user_message_event_from_parts(
-                        text.clone(),
-                        text_elements.clone(),
-                        local_image_paths.clone(),
-                        remote_image_urls.clone(),
-                    ));
+                self.last_rendered_user_message_event = submitted_user_message_event.clone();
                 self.add_to_history(history_cell::new_user_prompt(
                     text,
                     text_elements,
@@ -6543,13 +6552,7 @@ impl ChatWidget {
                 ));
                 self.record_visible_user_turn_for_copy();
             } else if !remote_image_urls.is_empty() {
-                self.last_rendered_user_message_event =
-                    Some(Self::rendered_user_message_event_from_parts(
-                        String::new(),
-                        Vec::new(),
-                        Vec::new(),
-                        remote_image_urls.clone(),
-                    ));
+                self.last_rendered_user_message_event = submitted_user_message_event;
                 self.add_to_history(history_cell::new_user_prompt(
                     String::new(),
                     Vec::new(),
