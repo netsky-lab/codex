@@ -684,9 +684,24 @@ struct ChannelUiState {
     submitted: usize,
     dropped: usize,
     queued: VecDeque<ChannelMessageEvent>,
+    recent_ids: VecDeque<String>,
+    recent_id_set: HashSet<String>,
 }
 
 impl ChannelUiState {
+    fn remember_message_id(&mut self, id: &str) -> bool {
+        if !self.recent_id_set.insert(id.to_string()) {
+            return false;
+        }
+        self.recent_ids.push_back(id.to_string());
+        while self.recent_ids.len() > 200 {
+            if let Some(oldest) = self.recent_ids.pop_front() {
+                self.recent_id_set.remove(&oldest);
+            }
+        }
+        true
+    }
+
     fn status_summary(&self) -> String {
         let state = if self.muted {
             "muted"
@@ -5735,6 +5750,9 @@ impl ChatWidget {
 
     #[allow(dead_code)]
     pub(crate) fn on_channel_message(&mut self, ev: ChannelMessageEvent) {
+        if !self.channel_ui.remember_message_id(&ev.id) {
+            return;
+        }
         self.channel_ui.received = self.channel_ui.received.saturating_add(1);
         if self.channel_ui.muted {
             self.channel_ui.dropped = self.channel_ui.dropped.saturating_add(1);
