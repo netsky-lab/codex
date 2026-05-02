@@ -6148,7 +6148,22 @@ impl ChatWidget {
             self.refresh_pending_input_preview();
         }
 
-        // Show replayable user content in conversation history.
+        // Show replayable user content in conversation history. When display
+        // text is overridden, keep the dedupe marker tied to the submitted
+        // payload so the later committed UserMessage event does not render the
+        // raw payload a second time.
+        let submitted_user_message_display = render_in_history.then(|| {
+            let local_image_paths = local_images
+                .iter()
+                .map(|img| img.path.clone())
+                .collect::<Vec<_>>();
+            Self::user_message_display_from_parts(
+                text.clone(),
+                text_elements.clone(),
+                local_image_paths,
+                remote_image_urls.clone(),
+            )
+        });
         let display_user_message = render_in_history.then(|| {
             user_message_display_for_history(
                 UserMessage {
@@ -6162,7 +6177,24 @@ impl ChatWidget {
             )
         });
         if let Some(display) = display_user_message {
-            self.on_user_message_display(display);
+            let should_render = !display.message.trim().is_empty()
+                || !display.text_elements.is_empty()
+                || !display.local_images.is_empty()
+                || !display.remote_image_urls.is_empty();
+            if should_render {
+                // Use the submitted payload as the dedupe marker so overridden
+                // display text, such as channel messages, does not render the
+                // raw model payload again when the committed UserMessage arrives.
+                self.last_rendered_user_message_display =
+                    submitted_user_message_display.or_else(|| Some(display.clone()));
+                self.add_to_history(history_cell::new_user_prompt(
+                    display.message,
+                    display.text_elements,
+                    display.local_images,
+                    display.remote_image_urls,
+                ));
+                self.record_visible_user_turn_for_copy();
+            }
         }
 
         self.needs_final_message_separator = false;
