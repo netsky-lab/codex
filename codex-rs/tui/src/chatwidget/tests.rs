@@ -33,6 +33,7 @@ pub(super) use codex_app_server_protocol::AdditionalFileSystemPermissions as App
 pub(super) use codex_app_server_protocol::AdditionalNetworkPermissions as AppServerAdditionalNetworkPermissions;
 pub(super) use codex_app_server_protocol::AdditionalPermissionProfile as AppServerAdditionalPermissionProfile;
 pub(super) use codex_app_server_protocol::AppSummary;
+pub(super) use codex_protocol::protocol::ChannelMessageAttachment;
 pub(super) use codex_protocol::protocol::ChannelMessageEvent;
 pub(super) use codex_app_server_protocol::AutoReviewDecisionSource as AppServerGuardianApprovalReviewDecisionSource;
 pub(super) use codex_app_server_protocol::CodexErrorInfo;
@@ -240,6 +241,7 @@ fn channel_message_model_payload_keeps_routing_metadata() {
         source: Some("telegram".to_string()),
         sender: Some("123".to_string()),
         text: "ping".to_string(),
+        attachments: Vec::new(),
         metadata: Some(serde_json::json!({ "chat_id": "123" })),
     };
 
@@ -259,6 +261,7 @@ fn channel_message_display_hides_raw_json() {
         source: Some("telegram".to_string()),
         sender: Some("123".to_string()),
         text: "ping".to_string(),
+        attachments: Vec::new(),
         metadata: Some(serde_json::json!({ "chat_id": "123" })),
     };
 
@@ -267,6 +270,35 @@ fn channel_message_display_hides_raw_json() {
     assert_eq!(display_text, "Inbound telegram message from 123:\nping");
     assert!(!display_text.contains("```json"));
     assert!(!display_text.contains("chat_id"));
+}
+
+#[test]
+fn channel_message_image_attachment_becomes_local_image() {
+    let event = ChannelMessageEvent {
+        id: "telegram:123:456".to_string(),
+        schema_version: 1,
+        server: "telegram-channel".to_string(),
+        source: Some("telegram".to_string()),
+        sender: Some("123".to_string()),
+        text: "photo".to_string(),
+        attachments: vec![ChannelMessageAttachment {
+            kind: "photo".to_string(),
+            path: Some(PathBuf::from("/tmp/photo.jpg")),
+            mime_type: Some("image/jpeg".to_string()),
+            file_name: Some("photo.jpg".to_string()),
+            file_size: Some(123),
+            metadata: None,
+        }],
+        metadata: None,
+    };
+
+    let display_text = format_channel_message_for_display(&event);
+    let local_images = channel_message_local_images(&event);
+
+    assert!(display_text.contains("Attachments:"));
+    assert!(display_text.contains("/tmp/photo.jpg"));
+    assert_eq!(local_images.len(), 1);
+    assert_eq!(local_images[0].path, PathBuf::from("/tmp/photo.jpg"));
 }
 
 mod app_server;

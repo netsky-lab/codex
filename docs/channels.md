@@ -19,6 +19,8 @@ env_vars = [
   "TELEGRAM_OFFSET_FILE",
   "TELEGRAM_DEBUG",
   "TELEGRAM_SEEN_REACTION",
+  "TELEGRAM_DOWNLOAD_DIR",
+  "TELEGRAM_MAX_DOWNLOAD_BYTES",
 ]
 
 [mcp_servers.telegram-channel.channel]
@@ -117,12 +119,16 @@ Set `TELEGRAM_DEBUG=1` during bridge debugging to include update-level
 diagnostics in `telegram_status`; normal status output keeps those details out.
 Accepted inbound messages get a Telegram 👀 reaction by default; set
 `TELEGRAM_SEEN_REACTION` to a different emoji or `0` to disable it.
+Incoming Telegram files are downloaded under
+`$CODEX_HOME/telegram-channel-files` unless `TELEGRAM_DOWNLOAD_DIR` is set.
+`TELEGRAM_MAX_DOWNLOAD_BYTES` defaults to 20 MiB.
 It exposes:
 
 - `telegram_reply`: replies by `channel_message_id`, explicit `chat_id`, or the
   latest inbound allowed chat.
 - `telegram_typing`: shows Telegram `typing` and other chat actions.
 - `telegram_react`: sets an emoji reaction on an inbound Telegram message.
+- `telegram_send_file`: uploads a local file to Telegram as a document or photo.
 - `telegram_status`: reports polling, allowlist, offset, and routing state.
 
 ## Security Notes
