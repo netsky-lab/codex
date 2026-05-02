@@ -42,6 +42,13 @@ export TELEGRAM_SEEN_REACTION="👍"
 export TELEGRAM_SEEN_REACTION=0
 ```
 
+Incoming Telegram files are downloaded under `$CODEX_HOME/telegram-channel-files` by default:
+
+```bash
+export TELEGRAM_DOWNLOAD_DIR="$HOME/.codex/telegram-channel-files"
+export TELEGRAM_MAX_DOWNLOAD_BYTES=20971520
+```
+
 ## Protocol
 
 The MCP server sends inbound Telegram messages as:
@@ -65,4 +72,5 @@ Codex turns that notification into a user message in the active TUI session when
 - `telegram_reply`: sends a response back to `channel_message_id`, `chat_id`, or the last inbound chat. Long messages are split for Telegram.
 - `telegram_typing`: shows a Telegram chat action such as `typing` or `upload_document`.
 - `telegram_react`: sets an emoji reaction on an inbound Telegram message.
+- `telegram_send_file`: uploads a local file to Telegram as a document or photo.
 - `telegram_status`: reports polling, offset, allowlist, and recent routing state. With `TELEGRAM_DEBUG=1`, it also includes update counters and the last observed update summary.

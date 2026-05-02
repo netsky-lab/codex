@@ -349,6 +349,8 @@ mod input_flow;
 mod input_restore;
 mod input_submission;
 #[cfg(test)]
+pub(super) use self::input_submission::channel_message_local_images;
+#[cfg(test)]
 pub(super) use self::input_submission::format_channel_message_for_display;
 #[cfg(test)]
 pub(super) use self::input_submission::format_channel_message_for_model;

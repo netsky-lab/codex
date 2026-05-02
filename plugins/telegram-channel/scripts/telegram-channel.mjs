@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import readline from "node:readline";
+import { openAsBlob } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -16,6 +17,13 @@ const pollTimeoutSec = Number(process.env.TELEGRAM_POLL_TIMEOUT_SEC ?? "25");
 const allowAllChats = process.env.TELEGRAM_ALLOW_ALL_CHATS === "1";
 const telegramDebug = process.env.TELEGRAM_DEBUG === "1";
 const seenReaction = String(process.env.TELEGRAM_SEEN_REACTION ?? "👀").trim();
+const downloadDir =
+  process.env.TELEGRAM_DOWNLOAD_DIR ??
+  path.join(
+    process.env.CODEX_HOME ?? path.join(os.homedir(), ".codex"),
+    "telegram-channel-files",
+  );
+const maxDownloadBytes = Number(process.env.TELEGRAM_MAX_DOWNLOAD_BYTES ?? 20 * 1024 * 1024);
 const offsetFile =
   process.env.TELEGRAM_OFFSET_FILE ??
   path.join(
@@ -93,7 +101,7 @@ async function handleRequest(message) {
         },
         serverInfo: {
           name: "telegram-channel",
-          version: "0.2.2",
+          version: "0.3.0",
           title: "Telegram Channel",
         },
         instructions:
@@ -220,6 +228,42 @@ async function handleRequest(message) {
             },
           },
           {
+            name: "telegram_send_file",
+            title: "Send file in Telegram",
+            description:
+              "Upload a local file to the originating Telegram chat or a specific chat_id.",
+            inputSchema: {
+              type: "object",
+              properties: {
+                path: {
+                  type: "string",
+                  description: "Local file path to send.",
+                },
+                chat_id: {
+                  type: "string",
+                  description:
+                    "Optional Telegram chat id. Defaults to the most recent allowed inbound chat.",
+                },
+                channel_message_id: {
+                  type: "string",
+                  description:
+                    "Optional inbound channel message id. Uses that message's chat.",
+                },
+                caption: {
+                  type: "string",
+                  description: "Optional Telegram caption.",
+                },
+                as_photo: {
+                  type: "boolean",
+                  description:
+                    "Send as a Telegram photo instead of a document. Only use for image files.",
+                },
+              },
+              required: ["path"],
+              additionalProperties: false,
+            },
+          },
+          {
             name: "telegram_status",
             title: "Telegram channel status",
             description: "Report Telegram channel bridge polling and routing state.",
@@ -258,6 +302,10 @@ async function handleToolCall(message) {
   }
   if (name === "telegram_react") {
     await handleReactTool(message.id, args);
+    return;
+  }
+  if (name === "telegram_send_file") {
+    await handleSendFileTool(message.id, args);
     return;
   }
   if (name !== "telegram_reply") {
@@ -333,6 +381,47 @@ async function handleReactTool(id, args) {
   sendToolResult(id, `reacted ${emoji} in Telegram chat ${chatId}`, false);
 }
 
+async function handleSendFileTool(id, args) {
+  const route = routeForReply(args);
+  const chatId = String(args.chat_id ?? route.chatId ?? lastChatId ?? "").trim();
+  const filePath = String(args.path ?? "").trim();
+  const caption = String(args.caption ?? "").trim();
+  if (!chatId) {
+    sendToolResult(id, "No Telegram chat is available yet.", true);
+    return;
+  }
+  if (!chatAllowed(chatId)) {
+    sendToolResult(id, `Telegram chat ${chatId} is not allowed.`, true);
+    return;
+  }
+  if (!filePath) {
+    sendToolResult(id, "path is required.", true);
+    return;
+  }
+  const stat = await fs.stat(filePath).catch(() => null);
+  if (!stat?.isFile()) {
+    sendToolResult(id, `File does not exist: ${filePath}`, true);
+    return;
+  }
+
+  const asPhoto = Boolean(args.as_photo);
+  await tryTelegram(
+    "sendChatAction",
+    { chat_id: chatId, action: asPhoto ? "upload_photo" : "upload_document" },
+    "telegram_send_file action",
+  );
+  await telegramMultipart(
+    asPhoto ? "sendPhoto" : "sendDocument",
+    {
+      chat_id: chatId,
+      ...(caption ? { caption } : {}),
+    },
+    asPhoto ? "photo" : "document",
+    filePath,
+  );
+  sendToolResult(id, `sent file to Telegram chat ${chatId}`, false);
+}
+
 function sendToolResult(id, text, isError) {
   sendResult(id, {
     content: [
@@ -372,7 +461,7 @@ async function pollLoop() {
       const result = await telegram("getUpdates", {
         offset: updateOffset,
         timeout: pollTimeoutSec,
-        allowed_updates: ["message"],
+        allowed_updates: ["message", "edited_message", "channel_post"],
       });
       for (const update of result) {
         seenUpdates += 1;
@@ -401,9 +490,10 @@ async function handleTelegramUpdate(update) {
     return;
   }
 
-  const text = message.text ?? message.caption;
-  if (!text) {
-    ignoreUpdate(`missing text/caption in ${Object.keys(message).join(",")}`);
+  const attachments = await collectTelegramAttachments(message, chatId);
+  const text = message.text ?? message.caption ?? defaultAttachmentText(attachments);
+  if (!text && attachments.length === 0) {
+    ignoreUpdate(`missing text/caption/attachment in ${Object.keys(message).join(",")}`);
     return;
   }
 
@@ -428,12 +518,126 @@ async function handleTelegramUpdate(update) {
     source: "telegram",
     channel: "telegram",
     text,
+    attachments,
     sender: String(message.from?.id ?? chatId),
     chat_id: chatId,
     telegram_message_id: message.message_id,
     username: message.from?.username,
     first_name: message.from?.first_name,
   });
+}
+
+async function collectTelegramAttachments(message, chatId) {
+  const candidates = [];
+  if (Array.isArray(message.photo) && message.photo.length > 0) {
+    const photo = message.photo[message.photo.length - 1];
+    candidates.push({
+      kind: "photo",
+      file: photo,
+      fileName: `telegram-${chatId}-${message.message_id}-photo.jpg`,
+      mimeType: "image/jpeg",
+    });
+  }
+  if (message.document) {
+    candidates.push({
+      kind: "document",
+      file: message.document,
+      fileName: message.document.file_name,
+      mimeType: message.document.mime_type,
+    });
+  }
+  if (message.animation) {
+    candidates.push({
+      kind: "animation",
+      file: message.animation,
+      fileName: message.animation.file_name,
+      mimeType: message.animation.mime_type,
+    });
+  }
+  if (message.video) {
+    candidates.push({
+      kind: "video",
+      file: message.video,
+      fileName: message.video.file_name,
+      mimeType: message.video.mime_type,
+    });
+  }
+  if (message.audio) {
+    candidates.push({
+      kind: "audio",
+      file: message.audio,
+      fileName: message.audio.file_name,
+      mimeType: message.audio.mime_type,
+    });
+  }
+  if (message.voice) {
+    candidates.push({
+      kind: "voice",
+      file: message.voice,
+      fileName: `telegram-${chatId}-${message.message_id}-voice.ogg`,
+      mimeType: message.voice.mime_type,
+    });
+  }
+
+  const attachments = [];
+  for (const candidate of candidates) {
+    attachments.push(await downloadTelegramAttachment(candidate, chatId, message.message_id));
+  }
+  return attachments;
+}
+
+async function downloadTelegramAttachment(candidate, chatId, messageId) {
+  const fileSize = candidate.file.file_size;
+  const attachment = {
+    kind: candidate.kind,
+    file_id: candidate.file.file_id,
+    file_unique_id: candidate.file.file_unique_id,
+    file_name: candidate.fileName,
+    mime_type: candidate.mimeType,
+    file_size: fileSize,
+  };
+  if (Number.isFinite(fileSize) && fileSize > maxDownloadBytes) {
+    attachment.download_error = `file too large: ${fileSize} > ${maxDownloadBytes}`;
+    return attachment;
+  }
+
+  try {
+    const file = await telegram("getFile", { file_id: candidate.file.file_id });
+    attachment.path = await downloadTelegramFile(file.file_path, candidate, chatId, messageId);
+  } catch (error) {
+    attachment.download_error = error.message;
+  }
+  return attachment;
+}
+
+async function downloadTelegramFile(filePath, candidate, chatId, messageId) {
+  const extension =
+    path.extname(candidate.fileName ?? "") || path.extname(filePath ?? "") || ".bin";
+  const baseName = sanitizeFileName(
+    candidate.fileName ?? `telegram-${chatId}-${messageId}-${candidate.kind}${extension}`,
+  );
+  const target = path.join(downloadDir, `${Date.now()}-${baseName}`);
+  const response = await fetch(`https://api.telegram.org/file/bot${token}/${filePath}`);
+  if (!response.ok) {
+    throw new Error(`Telegram file download failed: ${response.status}`);
+  }
+  const buffer = Buffer.from(await response.arrayBuffer());
+  if (buffer.length > maxDownloadBytes) {
+    throw new Error(`file too large: ${buffer.length} > ${maxDownloadBytes}`);
+  }
+  await fs.mkdir(downloadDir, { recursive: true });
+  await fs.writeFile(target, buffer, { mode: 0o600 });
+  return target;
+}
+
+function defaultAttachmentText(attachments) {
+  if (attachments.length === 0) {
+    return "";
+  }
+  if (attachments.length === 1) {
+    return `Telegram ${attachments[0].kind} attachment`;
+  }
+  return `Telegram message with ${attachments.length} attachments`;
 }
 
 async function sendChatActionFor(chatId, action, seconds) {
@@ -518,6 +722,24 @@ async function telegram(method, payload) {
   }
 }
 
+async function telegramMultipart(method, fields, fileField, filePath) {
+  const form = new FormData();
+  for (const [key, value] of Object.entries(fields)) {
+    form.append(key, String(value));
+  }
+  const blob = await openAsBlob(filePath);
+  form.append(fileField, blob, path.basename(filePath));
+  const response = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+    method: "POST",
+    body: form,
+  });
+  const json = await response.json().catch(() => null);
+  if (response.ok && json?.ok) {
+    return json.result;
+  }
+  throw new Error(json?.description ?? `Telegram API ${method} failed`);
+}
+
 function routeForReply(args) {
   const id = String(args.channel_message_id ?? "").trim();
   if (!id) {
@@ -548,6 +770,14 @@ function clampInteger(value, min, max) {
     return min;
   }
   return Math.min(max, Math.max(min, Math.trunc(number)));
+}
+
+function sanitizeFileName(value) {
+  const sanitized = String(value)
+    .replace(/[/\\?%*:|"<>]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+  return sanitized || "telegram-file.bin";
 }
 
 async function readOffset() {
@@ -582,6 +812,7 @@ function statusText() {
     `ignored_updates=${ignoredUpdates}`,
     `recent_routes=${recentMessages.size}`,
     `offset_file=${offsetFile}`,
+    `download_dir=${downloadDir}`,
   ];
 
   if (telegramDebug) {
@@ -629,6 +860,9 @@ async function runSelfTest() {
   }
   if (clampInteger(99, 1, 30) !== 30 || clampInteger("bad", 1, 30) !== 1) {
     throw new Error("clampInteger self-test failed");
+  }
+  if (sanitizeFileName("../bad:name.png") !== "..-bad-name.png") {
+    throw new Error("sanitizeFileName self-test failed");
   }
   const status = statusText();
   const hasDebugStatus = status.includes("last_update=");

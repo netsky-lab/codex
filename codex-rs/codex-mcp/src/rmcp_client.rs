@@ -58,6 +58,7 @@ use codex_config::types::OAuthCredentialsStoreMode;
 use codex_exec_server::HttpClient;
 use codex_exec_server::ReqwestHttpClient;
 use codex_protocol::mcp::McpServerInfo;
+use codex_protocol::protocol::ChannelMessageAttachment;
 use codex_protocol::protocol::ChannelMessageEvent;
 use codex_protocol::protocol::Event;
 use codex_protocol::protocol::EventMsg;
@@ -820,8 +821,8 @@ fn channel_message_event(
     }
 
     let params = params.unwrap_or(Value::Null);
-    let (text, source, sender, id, schema_version, metadata) = match params {
-        Value::String(text) => (text, None, None, None, None, None),
+    let (text, source, sender, id, schema_version, attachments, metadata) = match params {
+        Value::String(text) => (text, None, None, None, None, Vec::new(), None),
         Value::Object(mut object) => {
             let text =
                 take_string(&mut object, "text").or_else(|| take_string(&mut object, "message"))?;
@@ -839,8 +840,17 @@ fn channel_message_event(
                 });
             let schema_version = take_u32(&mut object, "schema_version")
                 .or_else(|| take_u32(&mut object, "schemaVersion"));
+            let attachments = take_channel_attachments(&mut object);
             let metadata = (!object.is_empty()).then_some(Value::Object(object));
-            (text, source, sender, id, schema_version, metadata)
+            (
+                text,
+                source,
+                sender,
+                id,
+                schema_version,
+                attachments,
+                metadata,
+            )
         }
         _ => return None,
     };
@@ -856,8 +866,48 @@ fn channel_message_event(
         source,
         sender,
         text,
+        attachments,
         metadata,
     })
+}
+
+fn take_channel_attachments(
+    object: &mut serde_json::Map<String, Value>,
+) -> Vec<ChannelMessageAttachment> {
+    let Some(value) = object.remove("attachments") else {
+        return Vec::new();
+    };
+    let Value::Array(items) = value else {
+        return Vec::new();
+    };
+
+    items
+        .into_iter()
+        .filter_map(|item| {
+            let Value::Object(mut object) = item else {
+                return None;
+            };
+            let kind = take_string(&mut object, "kind")
+                .or_else(|| take_string(&mut object, "type"))
+                .unwrap_or_else(|| "file".to_string());
+            let path = take_string(&mut object, "path").map(std::path::PathBuf::from);
+            let mime_type = take_string(&mut object, "mime_type")
+                .or_else(|| take_string(&mut object, "mimeType"));
+            let file_name = take_string(&mut object, "file_name")
+                .or_else(|| take_string(&mut object, "fileName"));
+            let file_size =
+                take_u64(&mut object, "file_size").or_else(|| take_u64(&mut object, "fileSize"));
+            let metadata = (!object.is_empty()).then_some(Value::Object(object));
+            Some(ChannelMessageAttachment {
+                kind,
+                path,
+                mime_type,
+                file_name,
+                file_size,
+                metadata,
+            })
+        })
+        .collect()
 }
 
 fn fallback_channel_message_id(server_name: &str, method: &str, text: &str) -> String {
@@ -879,6 +929,14 @@ fn take_string(object: &mut serde_json::Map<String, Value>, key: &str) -> Option
 fn take_u32(object: &mut serde_json::Map<String, Value>, key: &str) -> Option<u32> {
     match object.remove(key) {
         Some(Value::Number(value)) => value.as_u64().and_then(|value| u32::try_from(value).ok()),
+        Some(Value::String(value)) => value.parse().ok(),
+        _ => None,
+    }
+}
+
+fn take_u64(object: &mut serde_json::Map<String, Value>, key: &str) -> Option<u64> {
+    match object.remove(key) {
+        Some(Value::Number(value)) => value.as_u64(),
         Some(Value::String(value)) => value.parse().ok(),
         _ => None,
     }
@@ -920,6 +978,36 @@ mod channel_notification_tests {
                 .and_then(|value| value.as_str()),
             Some("1001")
         );
+    }
+
+    #[test]
+    fn parses_channel_attachments() {
+        let event = channel_message_event(
+            "telegram-channel",
+            "notifications/codex/channel",
+            Some(json!({
+                "source": "telegram",
+                "text": "photo",
+                "attachments": [
+                    {
+                        "kind": "photo",
+                        "path": "/tmp/photo.jpg",
+                        "mime_type": "image/jpeg",
+                        "file_name": "photo.jpg",
+                        "file_size": 123
+                    }
+                ]
+            })),
+        )
+        .expect("expected channel event");
+
+        assert_eq!(event.attachments.len(), 1);
+        assert_eq!(event.attachments[0].kind, "photo");
+        assert_eq!(
+            event.attachments[0].mime_type.as_deref(),
+            Some("image/jpeg")
+        );
+        assert_eq!(event.attachments[0].file_size, Some(123));
     }
 
     #[test]
