@@ -11,7 +11,8 @@
         "TELEGRAM_ALLOW_ALL_CHATS",
         "TELEGRAM_POLL_TIMEOUT_SEC",
         "TELEGRAM_OFFSET_FILE",
-        "TELEGRAM_DEBUG"
+        "TELEGRAM_DEBUG",
+        "TELEGRAM_SEEN_REACTION"
       ],
       "channel": {
         "enabled": true,
