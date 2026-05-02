@@ -159,6 +159,7 @@ use codex_protocol::protocol::AgentStatus;
 use codex_protocol::protocol::ApplyPatchApprovalRequestEvent;
 #[cfg(test)]
 use codex_protocol::protocol::BackgroundEventEvent;
+use codex_protocol::protocol::ChannelMessageAttachment;
 use codex_protocol::protocol::ChannelMessageEvent;
 #[cfg(test)]
 use codex_protocol::protocol::CodexErrorInfo as CoreCodexErrorInfo;
@@ -1288,6 +1289,7 @@ fn format_channel_message_for_model(ev: &ChannelMessageEvent) -> String {
         "source": ev.source,
         "sender": ev.sender,
         "text": ev.text,
+        "attachments": ev.attachments,
         "metadata": ev.metadata,
     });
     let json = serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string());
@@ -1301,7 +1303,7 @@ fn format_channel_message_for_display(ev: &ChannelMessageEvent) -> String {
         .map(str::trim)
         .filter(|source| !source.is_empty())
         .unwrap_or("channel");
-    match ev
+    let mut text = match ev
         .sender
         .as_deref()
         .map(str::trim)
@@ -1309,7 +1311,49 @@ fn format_channel_message_for_display(ev: &ChannelMessageEvent) -> String {
     {
         Some(sender) => format!("Inbound {source} message from {sender}:\n{}", ev.text),
         None => format!("Inbound {source} message:\n{}", ev.text),
+    };
+
+    if !ev.attachments.is_empty() {
+        text.push_str("\n\nAttachments:");
+        for attachment in &ev.attachments {
+            let label = attachment
+                .file_name
+                .as_deref()
+                .or_else(|| {
+                    attachment
+                        .path
+                        .as_ref()
+                        .and_then(|path| path.file_name()?.to_str())
+                })
+                .unwrap_or(attachment.kind.as_str());
+            match &attachment.path {
+                Some(path) => text.push_str(&format!("\n- {label}: {}", path.display())),
+                None => text.push_str(&format!("\n- {label}")),
+            }
+        }
     }
+    text
+}
+
+fn channel_message_local_images(ev: &ChannelMessageEvent) -> Vec<LocalImageAttachment> {
+    ev.attachments
+        .iter()
+        .filter(|attachment| is_channel_image_attachment(attachment))
+        .filter_map(|attachment| attachment.path.clone())
+        .enumerate()
+        .map(|(idx, path)| LocalImageAttachment {
+            placeholder: local_image_label_text(idx + 1),
+            path,
+        })
+        .collect()
+}
+
+fn is_channel_image_attachment(attachment: &ChannelMessageAttachment) -> bool {
+    attachment
+        .mime_type
+        .as_deref()
+        .is_some_and(|mime_type| mime_type.starts_with("image/"))
+        || matches!(attachment.kind.as_str(), "photo" | "image")
 }
 
 struct PendingSteer {
@@ -6073,12 +6117,19 @@ impl ChatWidget {
         let server = ev.server.clone();
         let model_text = format_channel_message_for_model(&ev);
         let display_text = format_channel_message_for_display(&ev);
+        let local_images = channel_message_local_images(&ev);
         self.add_info_message(
             format!("Submitted channel message {id} from {server}."),
             /*hint*/ None,
         );
         let _ = self.submit_user_message_with_history_and_shell_escape_policy(
-            UserMessage::from(model_text.as_str()),
+            UserMessage {
+                text: model_text,
+                local_images,
+                remote_image_urls: Vec::new(),
+                text_elements: Vec::new(),
+                mention_bindings: Vec::new(),
+            },
             UserMessageHistoryRecord::Override(UserMessageHistoryOverride {
                 text: display_text,
                 text_elements: Vec::new(),

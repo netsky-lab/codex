@@ -12,7 +12,9 @@
         "TELEGRAM_POLL_TIMEOUT_SEC",
         "TELEGRAM_OFFSET_FILE",
         "TELEGRAM_DEBUG",
-        "TELEGRAM_SEEN_REACTION"
+        "TELEGRAM_SEEN_REACTION",
+        "TELEGRAM_DOWNLOAD_DIR",
+        "TELEGRAM_MAX_DOWNLOAD_BYTES"
       ],
       "channel": {
         "enabled": true,
