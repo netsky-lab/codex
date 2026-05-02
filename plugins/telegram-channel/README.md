@@ -49,6 +49,11 @@ export TELEGRAM_DOWNLOAD_DIR="$HOME/.codex/telegram-channel-files"
 export TELEGRAM_MAX_DOWNLOAD_BYTES=20971520
 ```
 
+In groups, inbound messages include `bot`, `reply_to`, and `addressing`
+metadata. `addressing.probably_addressed_to_bot` is a hint for multi-bot chats,
+not a hard filter: Codex can still respond when the surrounding conversation
+clearly asks this bot.
+
 ## Protocol
 
 The MCP server sends inbound Telegram messages as:
@@ -62,7 +67,27 @@ The MCP server sends inbound Telegram messages as:
     "sender": "telegram user id",
     "chat_id": "telegram chat id",
     "id": "telegram:<chat_id>:<message_id>",
-    "schema_version": 1
+    "schema_version": 1,
+    "bot": {
+      "id": "bot user id",
+      "username": "bot_username"
+    },
+    "reply_to": {
+      "message_id": 100,
+      "sender": {
+        "id": "telegram user id",
+        "is_bot": false,
+        "username": "sender_username"
+      },
+      "text": "message being replied to"
+    },
+    "addressing": {
+      "is_reply_to_bot": false,
+      "is_reply_to_other_bot": false,
+      "mentions_bot": true,
+      "command_to_bot": false,
+      "probably_addressed_to_bot": true
+    }
   }
 }
 ```
