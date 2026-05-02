@@ -490,7 +490,21 @@ impl ChatWidget {
             });
         }
 
-        // Show replayable user content in conversation history.
+        // Show replayable user content in conversation history. If the display
+        // text is overridden, keep the dedupe marker tied to the submitted
+        // payload so the app-server echo does not render the raw payload later.
+        let submitted_user_message_display = render_in_history.then(|| {
+            let local_image_paths = local_images
+                .iter()
+                .map(|img| img.path.clone())
+                .collect::<Vec<_>>();
+            Self::user_message_display_from_parts(
+                text.clone(),
+                text_elements.clone(),
+                local_image_paths,
+                remote_image_urls.clone(),
+            )
+        });
         let display_user_message = render_in_history.then(|| {
             user_message_display_for_history(
                 UserMessage {
@@ -505,6 +519,11 @@ impl ChatWidget {
         });
         if let Some(display) = display_user_message {
             self.on_user_message_display(display);
+            if matches!(history_record, UserMessageHistoryRecord::Override(_))
+                && let Some(submitted_display) = submitted_user_message_display
+            {
+                self.last_rendered_user_message_display = Some(submitted_display);
+            }
         }
 
         self.transcript.needs_final_message_separator = false;
