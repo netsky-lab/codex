@@ -347,6 +347,10 @@ use self::input_queue::InputQueueState;
 mod input_flow;
 mod input_restore;
 mod input_submission;
+#[cfg(test)]
+pub(super) use self::input_submission::format_channel_message_for_display;
+#[cfg(test)]
+pub(super) use self::input_submission::format_channel_message_for_model;
 mod interrupts;
 use self::interrupts::InterruptManager;
 mod keymap_picker;

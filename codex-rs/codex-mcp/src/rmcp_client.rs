@@ -946,7 +946,10 @@ mod channel_notification_tests {
         .expect("expected channel event");
         let mut state = ChannelDeliveryState::new(10, 10);
 
-        assert_eq!(state.accept(&config, &event), ChannelDeliveryDecision::Accept);
+        assert_eq!(
+            state.accept(&config, &event),
+            ChannelDeliveryDecision::Accept
+        );
         assert_eq!(
             state.accept(&config, &event),
             ChannelDeliveryDecision::Duplicate
@@ -974,7 +977,10 @@ mod channel_notification_tests {
         .expect("expected channel event");
         let mut state = ChannelDeliveryState::new(10, 10);
 
-        assert_eq!(state.accept(&config, &first), ChannelDeliveryDecision::Accept);
+        assert_eq!(
+            state.accept(&config, &first),
+            ChannelDeliveryDecision::Accept
+        );
         assert_eq!(
             state.accept(&config, &second),
             ChannelDeliveryDecision::RateLimited
