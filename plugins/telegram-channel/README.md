@@ -29,6 +29,12 @@ export TELEGRAM_ALLOW_ALL_CHATS=1
 export TELEGRAM_OFFSET_FILE="$HOME/.codex/telegram-channel-offset.json"
 ```
 
+For bridge diagnostics while testing, enable verbose status fields:
+
+```bash
+export TELEGRAM_DEBUG=1
+```
+
 ## Protocol
 
 The MCP server sends inbound Telegram messages as:
@@ -50,4 +56,4 @@ The MCP server sends inbound Telegram messages as:
 Codex turns that notification into a user message in the active TUI session when the MCP server has `channel.enabled = true`. The plugin also exposes:
 
 - `telegram_reply`: sends a response back to `channel_message_id`, `chat_id`, or the last inbound chat. Long messages are split for Telegram.
-- `telegram_status`: reports polling, offset, allowlist, and recent routing state.
+- `telegram_status`: reports polling, offset, allowlist, and recent routing state. With `TELEGRAM_DEBUG=1`, it also includes update counters and the last observed update summary.

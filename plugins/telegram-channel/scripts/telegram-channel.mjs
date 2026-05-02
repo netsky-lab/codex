@@ -14,6 +14,7 @@ const allowedChatIds = new Set(
 );
 const pollTimeoutSec = Number(process.env.TELEGRAM_POLL_TIMEOUT_SEC ?? "25");
 const allowAllChats = process.env.TELEGRAM_ALLOW_ALL_CHATS === "1";
+const telegramDebug = process.env.TELEGRAM_DEBUG === "1";
 const offsetFile =
   process.env.TELEGRAM_OFFSET_FILE ??
   path.join(
@@ -380,21 +381,29 @@ async function writeOffset(offset) {
 }
 
 function statusText() {
-  return [
+  const lines = [
     `polling=${polling}`,
     "channel_delivery=logging_notification_v1",
+    `debug=${telegramDebug}`,
     `allow_all_chats=${allowAllChats}`,
     `allowed_chats=${allowedChatIds.size}`,
     `offset=${updateOffset}`,
-    `seen_updates=${seenUpdates}`,
     `accepted_updates=${acceptedUpdates}`,
     `rejected_updates=${rejectedUpdates}`,
     `ignored_updates=${ignoredUpdates}`,
-    `last_ignored_reason=${lastIgnoredReason}`,
-    `last_update=${lastUpdateSummary}`,
     `recent_routes=${recentMessages.size}`,
     `offset_file=${offsetFile}`,
-  ].join("\n");
+  ];
+
+  if (telegramDebug) {
+    lines.push(
+      `seen_updates=${seenUpdates}`,
+      `last_ignored_reason=${lastIgnoredReason}`,
+      `last_update=${lastUpdateSummary}`,
+    );
+  }
+
+  return lines.join("\n");
 }
 
 function summarizeUpdate(update) {
@@ -424,6 +433,11 @@ async function runSelfTest() {
   const route = routeForReply({ channel_message_id: "telegram:1:2" });
   if (route.chatId !== "1" || route.replyToMessageId !== 2) {
     throw new Error("routeForReply self-test failed");
+  }
+  const status = statusText();
+  const hasDebugStatus = status.includes("last_update=");
+  if (hasDebugStatus !== telegramDebug) {
+    throw new Error("telegram_status debug gating self-test failed");
   }
 }
 
