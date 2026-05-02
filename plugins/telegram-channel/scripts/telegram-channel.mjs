@@ -15,6 +15,7 @@ const allowedChatIds = new Set(
 const pollTimeoutSec = Number(process.env.TELEGRAM_POLL_TIMEOUT_SEC ?? "25");
 const allowAllChats = process.env.TELEGRAM_ALLOW_ALL_CHATS === "1";
 const telegramDebug = process.env.TELEGRAM_DEBUG === "1";
+const seenReaction = String(process.env.TELEGRAM_SEEN_REACTION ?? "👀").trim();
 const offsetFile =
   process.env.TELEGRAM_OFFSET_FILE ??
   path.join(
@@ -92,11 +93,11 @@ async function handleRequest(message) {
         },
         serverInfo: {
           name: "telegram-channel",
-          version: "0.2.1",
+          version: "0.2.2",
           title: "Telegram Channel",
         },
         instructions:
-          "Telegram messages arrive as JSON channel user input. Use telegram_reply with channel_message_id to answer the originating Telegram chat.",
+          "Telegram messages arrive as JSON channel user input. Use telegram_typing before longer work and telegram_reply with channel_message_id to answer the originating Telegram chat.",
       });
       break;
     case "ping":
@@ -137,6 +138,88 @@ async function handleRequest(message) {
             },
           },
           {
+            name: "telegram_typing",
+            title: "Show Telegram chat action",
+            description:
+              "Show a Telegram chat action, such as typing, in the originating Telegram chat or a specific chat_id.",
+            inputSchema: {
+              type: "object",
+              properties: {
+                chat_id: {
+                  type: "string",
+                  description:
+                    "Optional Telegram chat id. Defaults to the most recent allowed inbound chat.",
+                },
+                channel_message_id: {
+                  type: "string",
+                  description:
+                    "Optional inbound channel message id. Uses that message's chat.",
+                },
+                action: {
+                  type: "string",
+                  description:
+                    "Telegram chat action. Defaults to typing.",
+                  enum: [
+                    "typing",
+                    "upload_photo",
+                    "record_video",
+                    "upload_video",
+                    "record_voice",
+                    "upload_voice",
+                    "upload_document",
+                    "choose_sticker",
+                    "find_location",
+                    "record_video_note",
+                    "upload_video_note",
+                  ],
+                },
+                seconds: {
+                  type: "integer",
+                  description:
+                    "How long to keep refreshing the action. Defaults to 4, maximum 30.",
+                  minimum: 1,
+                  maximum: 30,
+                },
+              },
+              additionalProperties: false,
+            },
+          },
+          {
+            name: "telegram_react",
+            title: "React to Telegram message",
+            description:
+              "Set an emoji reaction on an inbound Telegram message.",
+            inputSchema: {
+              type: "object",
+              properties: {
+                chat_id: {
+                  type: "string",
+                  description:
+                    "Optional Telegram chat id. Defaults to the most recent allowed inbound chat.",
+                },
+                message_id: {
+                  type: "integer",
+                  description:
+                    "Optional Telegram message id. Defaults from channel_message_id when provided.",
+                },
+                channel_message_id: {
+                  type: "string",
+                  description:
+                    "Optional inbound channel message id. Uses that message's chat and message id.",
+                },
+                emoji: {
+                  type: "string",
+                  description: "Emoji reaction to set. Defaults to 👀.",
+                },
+                is_big: {
+                  type: "boolean",
+                  description: "Whether Telegram should render a big reaction animation.",
+                },
+              },
+              additionalProperties: false,
+            },
+          },
+          {
             name: "telegram_status",
             title: "Telegram channel status",
             description: "Report Telegram channel bridge polling and routing state.",
@@ -164,12 +247,21 @@ async function handleToolCall(message) {
     sendToolResult(message.id, statusText(), false);
     return;
   }
-  if (name !== "telegram_reply") {
-    sendError(message.id, -32602, `unknown tool: ${name}`);
-    return;
-  }
   if (!token) {
     sendToolResult(message.id, "TELEGRAM_BOT_TOKEN is not set.", true);
+    return;
+  }
+
+  if (name === "telegram_typing") {
+    await handleTypingTool(message.id, args);
+    return;
+  }
+  if (name === "telegram_react") {
+    await handleReactTool(message.id, args);
+    return;
+  }
+  if (name !== "telegram_reply") {
+    sendError(message.id, -32602, `unknown tool: ${name}`);
     return;
   }
 
@@ -190,6 +282,7 @@ async function handleToolCall(message) {
     return;
   }
 
+  await tryTelegram("sendChatAction", { chat_id: chatId, action: "typing" }, "telegram_reply typing");
   for (const chunk of splitTelegramMessage(text)) {
     await telegram("sendMessage", {
       chat_id: chatId,
@@ -200,6 +293,44 @@ async function handleToolCall(message) {
     });
   }
   sendToolResult(message.id, `sent to Telegram chat ${chatId}`, false);
+}
+
+async function handleTypingTool(id, args) {
+  const route = routeForReply(args);
+  const chatId = String(args.chat_id ?? route.chatId ?? lastChatId ?? "").trim();
+  const action = String(args.action ?? "typing").trim() || "typing";
+  const seconds = clampInteger(args.seconds ?? 4, 1, 30);
+  if (!chatId) {
+    sendToolResult(id, "No Telegram chat is available yet.", true);
+    return;
+  }
+  if (!chatAllowed(chatId)) {
+    sendToolResult(id, `Telegram chat ${chatId} is not allowed.`, true);
+    return;
+  }
+  await sendChatActionFor(chatId, action, seconds);
+  sendToolResult(id, `sent ${action} to Telegram chat ${chatId}`, false);
+}
+
+async function handleReactTool(id, args) {
+  const route = routeForReply(args);
+  const chatId = String(args.chat_id ?? route.chatId ?? lastChatId ?? "").trim();
+  const messageId = args.message_id ?? route.messageId ?? route.replyToMessageId;
+  const emoji = String(args.emoji ?? "👀").trim() || "👀";
+  if (!chatId) {
+    sendToolResult(id, "No Telegram chat is available yet.", true);
+    return;
+  }
+  if (!chatAllowed(chatId)) {
+    sendToolResult(id, `Telegram chat ${chatId} is not allowed.`, true);
+    return;
+  }
+  if (!Number.isInteger(messageId)) {
+    sendToolResult(id, "message_id or channel_message_id is required.", true);
+    return;
+  }
+  await setTelegramReaction(chatId, messageId, emoji, Boolean(args.is_big));
+  sendToolResult(id, `reacted ${emoji} in Telegram chat ${chatId}`, false);
 }
 
 function sendToolResult(id, text, isError) {
@@ -281,8 +412,16 @@ async function handleTelegramUpdate(update) {
   const channelMessageId = `telegram:${chatId}:${message.message_id}`;
   rememberMessage(channelMessageId, {
     chatId,
+    messageId: message.message_id,
     replyToMessageId: message.message_id,
   });
+  if (seenReaction && seenReaction !== "0") {
+    await tryTelegram(
+      "setMessageReaction",
+      reactionPayload(chatId, message.message_id, seenReaction, false),
+      "auto seen reaction",
+    );
+  }
   sendChannelNotification("notifications/codex/channel", {
     id: channelMessageId,
     schema_version: 1,
@@ -295,6 +434,48 @@ async function handleTelegramUpdate(update) {
     username: message.from?.username,
     first_name: message.from?.first_name,
   });
+}
+
+async function sendChatActionFor(chatId, action, seconds) {
+  const until = Date.now() + seconds * 1000;
+  do {
+    await telegram("sendChatAction", {
+      chat_id: chatId,
+      action,
+    });
+    const remainingMs = until - Date.now();
+    if (remainingMs <= 0) {
+      return;
+    }
+    await sleep(Math.min(4000, remainingMs));
+  } while (Date.now() < until);
+}
+
+async function setTelegramReaction(chatId, messageId, emoji, isBig) {
+  await telegram("setMessageReaction", reactionPayload(chatId, messageId, emoji, isBig));
+}
+
+function reactionPayload(chatId, messageId, emoji, isBig) {
+  return {
+    chat_id: chatId,
+    message_id: messageId,
+    reaction: [
+      {
+        type: "emoji",
+        emoji,
+      },
+    ],
+    is_big: isBig,
+  };
+}
+
+async function tryTelegram(method, payload, context) {
+  try {
+    return await telegram(method, payload);
+  } catch (error) {
+    logError(`${context} failed: ${error.message}`);
+    return null;
+  }
 }
 
 function ignoreUpdate(reason) {
@@ -359,6 +540,14 @@ function splitTelegramMessage(text) {
     chunks.push(text.slice(offset, offset + maxTelegramMessageLength));
   }
   return chunks.length === 0 ? [""] : chunks;
+}
+
+function clampInteger(value, min, max) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) {
+    return min;
+  }
+  return Math.min(max, Math.max(min, Math.trunc(number)));
 }
 
 async function readOffset() {
@@ -429,10 +618,17 @@ async function runSelfTest() {
   if (chunks.length !== 2 || chunks[0].length !== maxTelegramMessageLength || chunks[1].length !== 2) {
     throw new Error("splitTelegramMessage self-test failed");
   }
-  rememberMessage("telegram:1:2", { chatId: "1", replyToMessageId: 2 });
+  rememberMessage("telegram:1:2", { chatId: "1", messageId: 2, replyToMessageId: 2 });
   const route = routeForReply({ channel_message_id: "telegram:1:2" });
-  if (route.chatId !== "1" || route.replyToMessageId !== 2) {
+  if (route.chatId !== "1" || route.messageId !== 2 || route.replyToMessageId !== 2) {
     throw new Error("routeForReply self-test failed");
+  }
+  const reaction = reactionPayload("1", 2, "👀", false);
+  if (reaction.reaction[0].emoji !== "👀" || reaction.message_id !== 2) {
+    throw new Error("reactionPayload self-test failed");
+  }
+  if (clampInteger(99, 1, 30) !== 30 || clampInteger("bad", 1, 30) !== 1) {
+    throw new Error("clampInteger self-test failed");
   }
   const status = statusText();
   const hasDebugStatus = status.includes("last_update=");

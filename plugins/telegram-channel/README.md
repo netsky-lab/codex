@@ -35,6 +35,13 @@ For bridge diagnostics while testing, enable verbose status fields:
 export TELEGRAM_DEBUG=1
 ```
 
+Inbound messages get a Telegram 👀 reaction by default after the bridge accepts them. To change or disable it:
+
+```bash
+export TELEGRAM_SEEN_REACTION="👍"
+export TELEGRAM_SEEN_REACTION=0
+```
+
 ## Protocol
 
 The MCP server sends inbound Telegram messages as:
@@ -56,4 +63,6 @@ The MCP server sends inbound Telegram messages as:
 Codex turns that notification into a user message in the active TUI session when the MCP server has `channel.enabled = true`. The plugin also exposes:
 
 - `telegram_reply`: sends a response back to `channel_message_id`, `chat_id`, or the last inbound chat. Long messages are split for Telegram.
+- `telegram_typing`: shows a Telegram chat action such as `typing` or `upload_document`.
+- `telegram_react`: sets an emoji reaction on an inbound Telegram message.
 - `telegram_status`: reports polling, offset, allowlist, and recent routing state. With `TELEGRAM_DEBUG=1`, it also includes update counters and the last observed update summary.
