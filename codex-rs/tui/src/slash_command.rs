@@ -161,10 +161,10 @@ impl SlashCommand {
         matches!(
             self,
             SlashCommand::Copy
-            | SlashCommand::Diff
-            | SlashCommand::Mention
-            | SlashCommand::Status
-            | SlashCommand::Channels
+                | SlashCommand::Diff
+                | SlashCommand::Mention
+                | SlashCommand::Status
+                | SlashCommand::Channels
         )
     }
 

@@ -1279,7 +1279,7 @@ impl From<&str> for UserMessage {
     }
 }
 
-fn format_channel_message_for_model(ev: ChannelMessageEvent) -> String {
+fn format_channel_message_for_model(ev: &ChannelMessageEvent) -> String {
     let value = serde_json::json!({
         "type": "channel_message",
         "schema_version": ev.schema_version,
@@ -1292,6 +1292,24 @@ fn format_channel_message_for_model(ev: ChannelMessageEvent) -> String {
     });
     let json = serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string());
     format!("Inbound channel message:\n```json\n{json}\n```")
+}
+
+fn format_channel_message_for_display(ev: &ChannelMessageEvent) -> String {
+    let source = ev
+        .source
+        .as_deref()
+        .map(str::trim)
+        .filter(|source| !source.is_empty())
+        .unwrap_or("channel");
+    match ev
+        .sender
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        Some(sender) => format!("Inbound {source} message from {sender}:\n{}", ev.text),
+        None => format!("Inbound {source} message:\n{}", ev.text),
+    }
 }
 
 struct PendingSteer {
@@ -6053,13 +6071,18 @@ impl ChatWidget {
     fn submit_channel_message(&mut self, ev: ChannelMessageEvent) {
         let id = ev.id.clone();
         let server = ev.server.clone();
-        let text = format_channel_message_for_model(ev);
+        let model_text = format_channel_message_for_model(&ev);
+        let display_text = format_channel_message_for_display(&ev);
         self.add_info_message(
             format!("Submitted channel message {id} from {server}."),
             /*hint*/ None,
         );
-        let _ = self.submit_user_message_with_shell_escape_policy(
-            UserMessage::from(text),
+        let _ = self.submit_user_message_with_history_and_shell_escape_policy(
+            UserMessage::from(model_text.as_str()),
+            UserMessageHistoryRecord::Override(UserMessageHistoryOverride {
+                text: display_text,
+                text_elements: Vec::new(),
+            }),
             ShellEscapePolicy::Disallow,
         );
         self.channel_ui.submitted = self.channel_ui.submitted.saturating_add(1);
