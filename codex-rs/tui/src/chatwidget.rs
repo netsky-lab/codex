@@ -1362,6 +1362,15 @@ fn format_channel_message_for_model(ev: &ChannelMessageEvent) -> String {
     format!("Inbound channel message:\n```json\n{json}\n```")
 }
 
+fn message_requests_loop_stop(message: &str) -> bool {
+    message.lines().any(|line| {
+        let trimmed = line.trim();
+        trimmed == "/loop stop"
+            || trimmed == "`/loop stop`"
+            || trimmed.eq_ignore_ascii_case("[[codex_loop_stop]]")
+    })
+}
+
 fn format_channel_message_for_display(ev: &ChannelMessageEvent) -> String {
     let source = ev
         .source
@@ -2968,6 +2977,9 @@ impl ChatWidget {
         {
             self.record_agent_markdown(message);
         }
+        let loop_stop_requested = last_agent_message
+            .as_deref()
+            .is_some_and(message_requests_loop_stop);
         // For desktop notifications: prefer the notification payload, fall back to
         // the item-level copy source if present, otherwise send an empty string.
         let notification_response = last_agent_message
@@ -3049,6 +3061,13 @@ impl ChatWidget {
         // still show the prompt once after thread switch replay.
         if !from_replay {
             self.saw_plan_item_this_turn = false;
+        }
+        if loop_stop_requested && self.loop_ui.enabled {
+            self.stop_loop();
+            self.add_info_message(
+                "Loop stopped by assistant self-stop request.".to_string(),
+                /*hint*/ None,
+            );
         }
         // If there is a queued user message, send exactly one now to begin the next turn.
         let follow_up_started = self.maybe_send_next_queued_input();
