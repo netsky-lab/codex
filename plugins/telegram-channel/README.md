@@ -74,6 +74,10 @@ export TELEGRAM_ALLOWED_ROUTES="-1001234567890:12,-1001234567890:34"
 supergroup. Without topic allowlists, `TELEGRAM_ALLOWED_CHAT_IDS` keeps the old
 behavior and allows the whole chat.
 
+Invalid numeric env values and malformed topic routes are ignored and reported
+by `telegram_status`; with `TELEGRAM_DEBUG=1`, the status includes the exact
+configuration warning.
+
 ## Protocol
 
 The MCP server sends inbound Telegram messages as:
