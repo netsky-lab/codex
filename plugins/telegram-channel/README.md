@@ -4,6 +4,16 @@ Local MCP channel bridge for Codex.
 
 ## Setup
 
+Install the marketplace from this branch:
+
+```bash
+codex plugin marketplace add netsky-lab/codex --ref channels-telegram
+```
+
+Then open Codex, run `/plugins`, and install **Telegram Channel** from the
+Netsky Lab marketplace. The plugin registers its MCP server from `.mcp.json`;
+runtime secrets and allowlists still come from the environment variables below.
+
 1. Create a Telegram bot with BotFather and copy the token.
 2. Export the token before starting Codex:
 
