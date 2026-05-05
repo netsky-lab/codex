@@ -17,7 +17,9 @@ export TELEGRAM_BOT_TOKEN="123456:..."
 export TELEGRAM_ALLOWED_CHAT_IDS="123456789,987654321"
 ```
 
-Polling is disabled unless `TELEGRAM_ALLOWED_CHAT_IDS` is set. For a disposable local test bot you can opt out with:
+Polling is disabled unless `TELEGRAM_ALLOWED_CHAT_IDS` or
+`TELEGRAM_ALLOWED_ROUTES` is set. For a disposable local test bot you can opt
+out with:
 
 ```bash
 export TELEGRAM_ALLOW_ALL_CHATS=1
@@ -28,6 +30,9 @@ export TELEGRAM_ALLOW_ALL_CHATS=1
 ```bash
 export TELEGRAM_OFFSET_FILE="$HOME/.codex/telegram-channel-offset.json"
 ```
+
+Use a separate `TELEGRAM_OFFSET_FILE` for each bot token when running multiple
+Telegram channel bridges at the same time.
 
 For bridge diagnostics while testing, enable verbose status fields:
 
