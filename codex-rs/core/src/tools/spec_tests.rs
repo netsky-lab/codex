@@ -392,6 +392,7 @@ async fn test_build_specs_gpt5_codex_default() {
         "shell_command",
         &[
             "update_plan",
+            "loop_control",
             "request_user_input",
             "apply_patch",
             "web_search",
@@ -417,6 +418,7 @@ async fn test_build_specs_gpt51_codex_default() {
         "shell_command",
         &[
             "update_plan",
+            "loop_control",
             "request_user_input",
             "apply_patch",
             "web_search",
@@ -444,6 +446,7 @@ async fn test_build_specs_gpt5_codex_unified_exec_web_search() {
             "exec_command",
             "write_stdin",
             "update_plan",
+            "loop_control",
             "request_user_input",
             "apply_patch",
             "web_search",
@@ -471,6 +474,7 @@ async fn test_build_specs_gpt51_codex_unified_exec_web_search() {
             "exec_command",
             "write_stdin",
             "update_plan",
+            "loop_control",
             "request_user_input",
             "apply_patch",
             "web_search",
@@ -496,6 +500,7 @@ async fn test_gpt_5_1_codex_max_defaults() {
         "shell_command",
         &[
             "update_plan",
+            "loop_control",
             "request_user_input",
             "apply_patch",
             "web_search",
@@ -521,6 +526,7 @@ async fn test_codex_5_1_mini_defaults() {
         "shell_command",
         &[
             "update_plan",
+            "loop_control",
             "request_user_input",
             "apply_patch",
             "web_search",
@@ -546,6 +552,7 @@ async fn test_gpt_5_defaults() {
         "shell_command",
         &[
             "update_plan",
+            "loop_control",
             "request_user_input",
             "apply_patch",
             "web_search",
@@ -571,6 +578,7 @@ async fn test_gpt_5_1_defaults() {
         "shell_command",
         &[
             "update_plan",
+            "loop_control",
             "request_user_input",
             "apply_patch",
             "web_search",
@@ -598,6 +606,7 @@ async fn test_gpt_5_1_codex_max_unified_exec_web_search() {
             "exec_command",
             "write_stdin",
             "update_plan",
+            "loop_control",
             "request_user_input",
             "apply_patch",
             "web_search",
@@ -639,7 +648,7 @@ async fn test_build_specs_default_shell_present() {
     .build();
 
     // Only check the shell variant and a couple of core tools.
-    let mut subset = vec!["exec_command", "write_stdin", "update_plan"];
+    let mut subset = vec!["exec_command", "write_stdin", "update_plan", "loop_control"];
     if let Some(shell_tool) = shell_tool_name(&tools_config) {
         subset.push(shell_tool);
     }

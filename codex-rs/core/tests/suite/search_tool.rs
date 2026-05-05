@@ -970,6 +970,7 @@ async fn tool_search_indexes_only_enabled_non_app_mcp_tools() -> Result<()> {
                     oauth_resource: None,
                     supports_parallel_tool_calls: false,
                     tools: HashMap::new(),
+                    channel: Default::default(),
                 },
             );
             config
