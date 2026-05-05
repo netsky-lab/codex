@@ -13,6 +13,18 @@ const allowedChatIds = new Set(
     .map((entry) => entry.trim())
     .filter(Boolean),
 );
+const allowedThreadIds = new Set(
+  (process.env.TELEGRAM_ALLOWED_THREAD_IDS ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean),
+);
+const allowedRoutes = new Set(
+  (process.env.TELEGRAM_ALLOWED_ROUTES ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean),
+);
 const pollTimeoutSec = Number(process.env.TELEGRAM_POLL_TIMEOUT_SEC ?? "25");
 const allowAllChats = process.env.TELEGRAM_ALLOW_ALL_CHATS === "1";
 const telegramDebug = process.env.TELEGRAM_DEBUG === "1";
@@ -37,6 +49,7 @@ let initialized = false;
 let polling = false;
 let updateOffset = 0;
 let lastChatId = null;
+let lastMessageThreadId = undefined;
 let seenUpdates = 0;
 let acceptedUpdates = 0;
 let rejectedUpdates = 0;
@@ -102,7 +115,7 @@ async function handleRequest(message) {
         },
         serverInfo: {
           name: "telegram-channel",
-          version: "0.4.0",
+          version: "0.5.0",
           title: "Telegram Channel",
         },
         instructions:
@@ -136,10 +149,15 @@ async function handleRequest(message) {
                   type: "integer",
                   description: "Optional Telegram message id to reply to.",
                 },
+                message_thread_id: {
+                  type: "integer",
+                  description:
+                    "Optional Telegram forum topic id. Defaults from channel_message_id when provided.",
+                },
                 channel_message_id: {
                   type: "string",
                   description:
-                    "Optional inbound channel message id. Uses that message's chat and reply id.",
+                    "Optional inbound channel message id. Uses that message's chat, topic, and reply id.",
                 },
               },
               required: ["text"],
@@ -162,7 +180,12 @@ async function handleRequest(message) {
                 channel_message_id: {
                   type: "string",
                   description:
-                    "Optional inbound channel message id. Uses that message's chat.",
+                    "Optional inbound channel message id. Uses that message's chat and topic.",
+                },
+                message_thread_id: {
+                  type: "integer",
+                  description:
+                    "Optional Telegram forum topic id. Defaults from channel_message_id when provided.",
                 },
                 action: {
                   type: "string",
@@ -248,7 +271,12 @@ async function handleRequest(message) {
                 channel_message_id: {
                   type: "string",
                   description:
-                    "Optional inbound channel message id. Uses that message's chat.",
+                    "Optional inbound channel message id. Uses that message's chat and topic.",
+                },
+                message_thread_id: {
+                  type: "integer",
+                  description:
+                    "Optional Telegram forum topic id. Defaults from channel_message_id when provided.",
                 },
                 caption: {
                   type: "string",
@@ -318,6 +346,7 @@ async function handleToolCall(message) {
   const route = routeForReply(args);
   const chatId = String(args.chat_id ?? route.chatId ?? lastChatId ?? "").trim();
   const replyToMessageId = args.reply_to_message_id ?? route.replyToMessageId;
+  const messageThreadId = args.message_thread_id ?? route.messageThreadId ?? lastMessageThreadId;
   if (!text) {
     sendToolResult(message.id, "text is required.", true);
     return;
@@ -326,16 +355,21 @@ async function handleToolCall(message) {
     sendToolResult(message.id, "No Telegram chat is available yet.", true);
     return;
   }
-  if (!chatAllowed(chatId)) {
-    sendToolResult(message.id, `Telegram chat ${chatId} is not allowed.`, true);
+  if (!chatAllowed(chatId, messageThreadId)) {
+    sendToolResult(message.id, `Telegram route ${routeKey(chatId, messageThreadId)} is not allowed.`, true);
     return;
   }
 
-  await tryTelegram("sendChatAction", { chat_id: chatId, action: "typing" }, "telegram_reply typing");
+  await tryTelegram(
+    "sendChatAction",
+    chatActionPayload(chatId, "typing", messageThreadId),
+    "telegram_reply typing",
+  );
   for (const chunk of splitTelegramMessage(text)) {
     await telegram("sendMessage", {
       chat_id: chatId,
       text: chunk,
+      ...threadPayload(messageThreadId),
       ...(Number.isInteger(replyToMessageId)
         ? { reply_to_message_id: replyToMessageId }
         : {}),
@@ -347,18 +381,19 @@ async function handleToolCall(message) {
 async function handleTypingTool(id, args) {
   const route = routeForReply(args);
   const chatId = String(args.chat_id ?? route.chatId ?? lastChatId ?? "").trim();
+  const messageThreadId = args.message_thread_id ?? route.messageThreadId ?? lastMessageThreadId;
   const action = String(args.action ?? "typing").trim() || "typing";
   const seconds = clampInteger(args.seconds ?? 4, 1, 30);
   if (!chatId) {
     sendToolResult(id, "No Telegram chat is available yet.", true);
     return;
   }
-  if (!chatAllowed(chatId)) {
-    sendToolResult(id, `Telegram chat ${chatId} is not allowed.`, true);
+  if (!chatAllowed(chatId, messageThreadId)) {
+    sendToolResult(id, `Telegram route ${routeKey(chatId, messageThreadId)} is not allowed.`, true);
     return;
   }
-  await sendChatActionFor(chatId, action, seconds);
-  sendToolResult(id, `sent ${action} to Telegram chat ${chatId}`, false);
+  await sendChatActionFor(chatId, action, seconds, messageThreadId);
+  sendToolResult(id, `sent ${action} to Telegram route ${routeKey(chatId, messageThreadId)}`, false);
 }
 
 async function handleReactTool(id, args) {
@@ -370,8 +405,9 @@ async function handleReactTool(id, args) {
     sendToolResult(id, "No Telegram chat is available yet.", true);
     return;
   }
-  if (!chatAllowed(chatId)) {
-    sendToolResult(id, `Telegram chat ${chatId} is not allowed.`, true);
+  const messageThreadId = route.messageThreadId ?? lastMessageThreadId;
+  if (!chatAllowed(chatId, messageThreadId)) {
+    sendToolResult(id, `Telegram route ${routeKey(chatId, messageThreadId)} is not allowed.`, true);
     return;
   }
   if (!Number.isInteger(messageId)) {
@@ -385,14 +421,15 @@ async function handleReactTool(id, args) {
 async function handleSendFileTool(id, args) {
   const route = routeForReply(args);
   const chatId = String(args.chat_id ?? route.chatId ?? lastChatId ?? "").trim();
+  const messageThreadId = args.message_thread_id ?? route.messageThreadId ?? lastMessageThreadId;
   const filePath = String(args.path ?? "").trim();
   const caption = String(args.caption ?? "").trim();
   if (!chatId) {
     sendToolResult(id, "No Telegram chat is available yet.", true);
     return;
   }
-  if (!chatAllowed(chatId)) {
-    sendToolResult(id, `Telegram chat ${chatId} is not allowed.`, true);
+  if (!chatAllowed(chatId, messageThreadId)) {
+    sendToolResult(id, `Telegram route ${routeKey(chatId, messageThreadId)} is not allowed.`, true);
     return;
   }
   if (!filePath) {
@@ -408,13 +445,14 @@ async function handleSendFileTool(id, args) {
   const asPhoto = Boolean(args.as_photo);
   await tryTelegram(
     "sendChatAction",
-    { chat_id: chatId, action: asPhoto ? "upload_photo" : "upload_document" },
+    chatActionPayload(chatId, asPhoto ? "upload_photo" : "upload_document", messageThreadId),
     "telegram_send_file action",
   );
   await telegramMultipart(
     asPhoto ? "sendPhoto" : "sendDocument",
     {
       chat_id: chatId,
+      ...threadPayload(messageThreadId),
       ...(caption ? { caption } : {}),
     },
     asPhoto ? "photo" : "document",
@@ -448,9 +486,9 @@ async function pollLoop() {
     logError("TELEGRAM_BOT_TOKEN is not set; Telegram channel polling is disabled.");
     return;
   }
-  if (allowedChatIds.size === 0 && !allowAllChats) {
+  if (allowedChatIds.size === 0 && allowedRoutes.size === 0 && !allowAllChats) {
     logError(
-      "TELEGRAM_ALLOWED_CHAT_IDS is required unless TELEGRAM_ALLOW_ALL_CHATS=1; Telegram channel polling is disabled.",
+      "TELEGRAM_ALLOWED_CHAT_IDS or TELEGRAM_ALLOWED_ROUTES is required unless TELEGRAM_ALLOW_ALL_CHATS=1; Telegram channel polling is disabled.",
     );
     return;
   }
@@ -487,7 +525,8 @@ async function handleTelegramUpdate(update) {
   }
 
   const chatId = String(message.chat.id);
-  if (!chatAllowed(chatId)) {
+  const messageThreadId = message.message_thread_id;
+  if (!chatAllowed(chatId, messageThreadId)) {
     rejectedUpdates += 1;
     return;
   }
@@ -500,6 +539,7 @@ async function handleTelegramUpdate(update) {
   }
 
   lastChatId = chatId;
+  lastMessageThreadId = messageThreadId;
   acceptedUpdates += 1;
   const channelMessageId = `telegram:${chatId}:${message.message_id}`;
   const replyTo = summarizeReplyToMessage(message.reply_to_message);
@@ -509,6 +549,7 @@ async function handleTelegramUpdate(update) {
     chatId,
     messageId: message.message_id,
     replyToMessageId: message.message_id,
+    messageThreadId,
   });
   if (seenReaction && seenReaction !== "0") {
     await tryTelegram(
@@ -529,7 +570,13 @@ async function handleTelegramUpdate(update) {
     bot: botIdentity,
     reply_to: replyTo,
     addressing,
+    route: {
+      chat_id: chatId,
+      message_thread_id: messageThreadId,
+      key: routeKey(chatId, messageThreadId),
+    },
     chat_id: chatId,
+    message_thread_id: messageThreadId,
     telegram_message_id: message.message_id,
     username: message.from?.username,
     first_name: message.from?.first_name,
@@ -571,6 +618,7 @@ function summarizeReplyToMessage(message) {
   }
   return {
     message_id: message.message_id,
+    message_thread_id: message.message_thread_id,
     sender: summarizeTelegramUser(message.from),
     chat_id: message.chat?.id !== undefined ? String(message.chat.id) : undefined,
     text: message.text ?? message.caption,
@@ -610,6 +658,7 @@ function computeAddressing(message, text, replyTo) {
     bot_id: botId,
     bot_username: botUsername,
     chat_type: message.chat?.type,
+    message_thread_id: message.message_thread_id,
     is_private_chat: isPrivateChat,
     is_reply: Boolean(replyTo),
     is_reply_to_bot: isReplyToBot,
@@ -788,13 +837,10 @@ function defaultAttachmentText(attachments) {
   return `Telegram message with ${attachments.length} attachments`;
 }
 
-async function sendChatActionFor(chatId, action, seconds) {
+async function sendChatActionFor(chatId, action, seconds, messageThreadId) {
   const until = Date.now() + seconds * 1000;
   do {
-    await telegram("sendChatAction", {
-      chat_id: chatId,
-      action,
-    });
+    await telegram("sendChatAction", chatActionPayload(chatId, action, messageThreadId));
     const remainingMs = until - Date.now();
     if (remainingMs <= 0) {
       return;
@@ -835,8 +881,60 @@ function ignoreUpdate(reason) {
   lastIgnoredReason = reason;
 }
 
-function chatAllowed(chatId) {
-  return allowAllChats || allowedChatIds.has(String(chatId));
+function chatAllowed(chatId, messageThreadId) {
+  return chatAllowedWithSets(chatId, messageThreadId, {
+    allowAllChats,
+    allowedChatIds,
+    allowedThreadIds,
+    allowedRoutes,
+  });
+}
+
+function chatAllowedWithSets(chatId, messageThreadId, config) {
+  if (config.allowAllChats) {
+    return true;
+  }
+  const chat = String(chatId);
+  const thread = normalizeThreadId(messageThreadId);
+  const routes = config.allowedRoutes ?? new Set();
+  if (
+    routes.has(routeKey(chat, thread))
+    || routes.has(`${chat}:*`)
+    || (!thread && routes.has(chat))
+  ) {
+    return true;
+  }
+  if (!config.allowedChatIds?.has(chat)) {
+    return false;
+  }
+  const threads = config.allowedThreadIds ?? new Set();
+  return threads.size === 0 || (thread !== undefined && threads.has(String(thread)));
+}
+
+function chatActionPayload(chatId, action, messageThreadId) {
+  return {
+    chat_id: chatId,
+    action,
+    ...threadPayload(messageThreadId),
+  };
+}
+
+function threadPayload(messageThreadId) {
+  const thread = normalizeThreadId(messageThreadId);
+  return thread === undefined ? {} : { message_thread_id: thread };
+}
+
+function normalizeThreadId(messageThreadId) {
+  if (messageThreadId === undefined || messageThreadId === null || messageThreadId === "") {
+    return undefined;
+  }
+  const number = Number(messageThreadId);
+  return Number.isSafeInteger(number) ? number : undefined;
+}
+
+function routeKey(chatId, messageThreadId) {
+  const thread = normalizeThreadId(messageThreadId);
+  return thread === undefined ? String(chatId) : `${chatId}:${thread}`;
 }
 
 async function telegram(method, payload) {
@@ -954,6 +1052,8 @@ function statusText() {
     `debug=${telegramDebug}`,
     `allow_all_chats=${allowAllChats}`,
     `allowed_chats=${allowedChatIds.size}`,
+    `allowed_threads=${allowedThreadIds.size}`,
+    `allowed_routes=${allowedRoutes.size}`,
     `offset=${updateOffset}`,
     `accepted_updates=${acceptedUpdates}`,
     `rejected_updates=${rejectedUpdates}`,
@@ -987,6 +1087,7 @@ function summarizeUpdate(update) {
     `update_id=${update.update_id}`,
     `keys=${keys}`,
     `chat_id=${message.chat?.id ?? "none"}`,
+    `message_thread_id=${message.message_thread_id ?? "none"}`,
     `message_id=${message.message_id ?? "none"}`,
     `message_keys=${messageKeys}`,
     `has_text=${Boolean(message.text)}`,
@@ -999,10 +1100,42 @@ async function runSelfTest() {
   if (chunks.length !== 2 || chunks[0].length !== maxTelegramMessageLength || chunks[1].length !== 2) {
     throw new Error("splitTelegramMessage self-test failed");
   }
-  rememberMessage("telegram:1:2", { chatId: "1", messageId: 2, replyToMessageId: 2 });
+  rememberMessage("telegram:1:2", { chatId: "1", messageId: 2, replyToMessageId: 2, messageThreadId: 10 });
   const route = routeForReply({ channel_message_id: "telegram:1:2" });
-  if (route.chatId !== "1" || route.messageId !== 2 || route.replyToMessageId !== 2) {
+  if (route.chatId !== "1" || route.messageId !== 2 || route.replyToMessageId !== 2 || route.messageThreadId !== 10) {
     throw new Error("routeForReply self-test failed");
+  }
+  if (!chatAllowedWithSets("-1001", 10, {
+    allowAllChats: false,
+    allowedChatIds: new Set(["-1001"]),
+    allowedThreadIds: new Set(["10"]),
+    allowedRoutes: new Set(),
+  })) {
+    throw new Error("allowed thread self-test failed");
+  }
+  if (!chatAllowedWithSets("-1001", 20, {
+    allowAllChats: false,
+    allowedChatIds: new Set(),
+    allowedThreadIds: new Set(),
+    allowedRoutes: new Set(["-1001:20"]),
+  })) {
+    throw new Error("allowed route self-test failed");
+  }
+  if (chatAllowedWithSets("-1001", 21, {
+    allowAllChats: false,
+    allowedChatIds: new Set(),
+    allowedThreadIds: new Set(),
+    allowedRoutes: new Set(["-1001:20"]),
+  })) {
+    throw new Error("rejected route self-test failed");
+  }
+  if (!chatAllowedWithSets("42", undefined, {
+    allowAllChats: false,
+    allowedChatIds: new Set(["42"]),
+    allowedThreadIds: new Set(),
+    allowedRoutes: new Set(["-1001:20"]),
+  })) {
+    throw new Error("allowed chat fallback self-test failed");
   }
   const reaction = reactionPayload("1", 2, "👀", false);
   if (reaction.reaction[0].emoji !== "👀" || reaction.message_id !== 2) {
