@@ -695,6 +695,8 @@ struct LoopUiState {
     enabled: bool,
     completed_iterations: usize,
     interval_minutes: Option<u64>,
+    immediate: bool,
+    max_iterations: Option<usize>,
     timer_pending: bool,
     generation: u64,
     prompt: String,
@@ -717,8 +719,19 @@ impl LoopUiState {
             .interval_minutes
             .map(|value| value.to_string())
             .unwrap_or_else(|| "none".to_string());
+        let mode = if self.immediate {
+            "immediate"
+        } else if self.interval_minutes.is_some() {
+            "timed"
+        } else {
+            "once"
+        };
+        let max = self
+            .max_iterations
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "unlimited".to_string());
         format!(
-            "Loop is {state}. completed={}, interval_minutes={interval}",
+            "Loop is {state}. mode={mode}, completed={}, interval_minutes={interval}, max={max}",
             self.completed_iterations
         )
     }
@@ -2739,7 +2752,7 @@ impl ChatWidget {
         }
         // If there is a queued user message, send exactly one now to begin the next turn.
         let follow_up_started = self.maybe_send_next_queued_input();
-        let loop_follow_up_started = !follow_up_started && self.schedule_loop_timer();
+        let loop_follow_up_started = !follow_up_started && self.maybe_continue_loop_after_turn();
         let active_goal_continuing = self
             .current_goal_status
             .as_ref()
@@ -5926,7 +5939,10 @@ impl ChatWidget {
     fn add_loop_status_output(&mut self) {
         self.add_info_message(
             self.loop_ui.status_summary(),
-            Some("Use /loop <minutes> <prompt>, /loop once <prompt>, /loop stop.".to_string()),
+            Some(
+                "Use /loop <minutes> [--max N] <prompt>, /loop now [--max N] <prompt>, /loop --immediate [--max N] <prompt>, /loop once <prompt>, /loop stop."
+                    .to_string(),
+            ),
         );
     }
 
@@ -5948,14 +5964,15 @@ impl ChatWidget {
                 let rest = trimmed[command.len()..].trim();
                 self.start_one_shot_loop(rest);
             }
+            "now" | "immediate" | "--immediate" | "--now" => {
+                let rest = trimmed[command.len()..].trim();
+                self.start_immediate_loop_from_args(rest);
+            }
             _ => {
                 if command.parse::<u64>().is_ok() {
                     self.start_timed_loop_from_args(trimmed);
                 } else {
-                    self.add_error_message(
-                        "Usage: /loop <minutes> <prompt> | /loop once <prompt> | /loop stop"
-                            .to_string(),
-                    );
+                    self.add_error_message("Usage: /loop <minutes> [--max N] <prompt> | /loop now [--max N] <prompt> | /loop --immediate [--max N] <prompt> | /loop once <prompt> | /loop stop".to_string());
                 }
             }
         }
@@ -5977,18 +5994,71 @@ impl ChatWidget {
             self.add_error_message("Loop interval must be greater than zero minutes.".to_string());
             return;
         }
-        let prompt = parts.next().map(str::trim).unwrap_or_default();
-        self.start_loop(Some(minutes), prompt);
+        let rest = parts.next().map(str::trim).unwrap_or_default();
+        let Some((max_iterations, prompt)) = self.parse_loop_options(rest) else {
+            return;
+        };
+        self.start_loop(
+            Some(minutes),
+            /*immediate*/ false,
+            max_iterations,
+            &prompt,
+        );
+    }
+
+    fn start_immediate_loop_from_args(&mut self, args: &str) {
+        let Some((max_iterations, prompt)) = self.parse_loop_options(args) else {
+            return;
+        };
+        self.start_loop(None, /*immediate*/ true, max_iterations, &prompt);
     }
 
     fn start_one_shot_loop(&mut self, prompt: &str) {
-        self.start_loop(None, prompt);
+        self.start_loop(None, /*immediate*/ false, Some(1), prompt);
     }
 
-    fn start_loop(&mut self, interval_minutes: Option<u64>, prompt: &str) {
+    fn parse_loop_options(&mut self, args: &str) -> Option<(Option<usize>, String)> {
+        let mut tokens = args.split_whitespace().peekable();
+        let mut max_iterations = None;
+        let mut prompt_parts: Vec<&str> = Vec::new();
+
+        while let Some(token) = tokens.next() {
+            if token == "--max" {
+                let Some(value) = tokens.next() else {
+                    self.add_error_message("Usage: /loop <minutes> [--max N] <prompt>".to_string());
+                    return None;
+                };
+                let Ok(parsed) = value.parse::<usize>() else {
+                    self.add_error_message("Loop max must be a positive number.".to_string());
+                    return None;
+                };
+                if parsed == 0 {
+                    self.add_error_message("Loop max must be greater than zero.".to_string());
+                    return None;
+                }
+                max_iterations = Some(parsed);
+            } else {
+                prompt_parts.push(token);
+                prompt_parts.extend(tokens);
+                break;
+            }
+        }
+
+        Some((max_iterations, prompt_parts.join(" ")))
+    }
+
+    fn start_loop(
+        &mut self,
+        interval_minutes: Option<u64>,
+        immediate: bool,
+        max_iterations: Option<usize>,
+        prompt: &str,
+    ) {
         self.loop_ui.enabled = true;
         self.loop_ui.completed_iterations = 0;
         self.loop_ui.interval_minutes = interval_minutes;
+        self.loop_ui.immediate = immediate;
+        self.loop_ui.max_iterations = max_iterations;
         self.loop_ui.timer_pending = false;
         self.loop_ui.generation = self.loop_ui.generation.wrapping_add(1);
         self.loop_ui.prompt = prompt.trim().to_string();
@@ -6004,11 +6074,42 @@ impl ChatWidget {
         self.loop_ui.generation = self.loop_ui.generation.wrapping_add(1);
     }
 
+    fn stop_loop_after_max_iterations(&mut self) -> bool {
+        let Some(max_iterations) = self.loop_ui.max_iterations else {
+            return false;
+        };
+        if self.loop_ui.completed_iterations < max_iterations {
+            return false;
+        }
+        self.stop_loop();
+        self.add_info_message(
+            format!("Loop stopped after {max_iterations} iteration(s)."),
+            /*hint*/ None,
+        );
+        true
+    }
+
+    fn maybe_continue_loop_after_turn(&mut self) -> bool {
+        if !self.loop_ui.enabled {
+            return false;
+        }
+        if self.stop_loop_after_max_iterations() {
+            return false;
+        }
+        if self.loop_ui.immediate {
+            return self.maybe_submit_loop_follow_up();
+        }
+        self.schedule_loop_timer()
+    }
+
     fn schedule_loop_timer(&mut self) -> bool {
         let Some(interval_minutes) = self.loop_ui.interval_minutes else {
             return false;
         };
         if !self.loop_ui.enabled || self.loop_ui.timer_pending {
+            return false;
+        }
+        if self.stop_loop_after_max_iterations() {
             return false;
         }
         self.loop_ui.timer_pending = true;
@@ -6039,6 +6140,9 @@ impl ChatWidget {
         if !self.loop_ui.enabled || !self.is_session_configured() || self.agent_turn_running {
             return false;
         }
+        if self.stop_loop_after_max_iterations() {
+            return false;
+        }
 
         self.loop_ui.completed_iterations = self.loop_ui.completed_iterations.saturating_add(1);
         let iteration = self.loop_ui.completed_iterations;
@@ -6066,7 +6170,7 @@ impl ChatWidget {
         if !submitted {
             return false;
         }
-        if self.loop_ui.interval_minutes.is_none() {
+        if self.loop_ui.interval_minutes.is_none() && !self.loop_ui.immediate {
             self.stop_loop();
         }
         true

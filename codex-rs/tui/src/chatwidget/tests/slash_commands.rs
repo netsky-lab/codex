@@ -107,6 +107,66 @@ async fn loop_minutes_submits_now_and_waits_after_completion() {
 }
 
 #[tokio::test]
+async fn loop_max_stops_after_limit() {
+    let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    chat.thread_id = Some(ThreadId::new());
+
+    chat.dispatch_command_with_args(
+        SlashCommand::Loop,
+        "10 --max 1 keep going".to_string(),
+        Vec::new(),
+    );
+
+    assert_eq!(next_user_turn_text(&mut op_rx), "keep going");
+    assert_eq!(chat.loop_ui.max_iterations, Some(1));
+
+    chat.handle_codex_event(Event {
+        id: "turn-complete".into(),
+        msg: EventMsg::TurnComplete(turn_complete_event("turn-1", Some("done"))),
+    });
+
+    assert!(!chat.loop_ui.enabled);
+    assert!(!chat.loop_ui.timer_pending);
+    assert_no_user_turn(&mut op_rx);
+}
+
+#[tokio::test]
+async fn loop_now_submits_after_completion_without_timer() {
+    let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    chat.thread_id = Some(ThreadId::new());
+
+    chat.dispatch_command_with_args(
+        SlashCommand::Loop,
+        "now --max 2 keep going".to_string(),
+        Vec::new(),
+    );
+
+    assert_eq!(next_user_turn_text(&mut op_rx), "keep going");
+    assert!(chat.loop_ui.enabled);
+    assert!(chat.loop_ui.immediate);
+    assert_eq!(chat.loop_ui.interval_minutes, None);
+    assert_eq!(chat.loop_ui.completed_iterations, 1);
+
+    chat.handle_codex_event(Event {
+        id: "turn-complete".into(),
+        msg: EventMsg::TurnComplete(turn_complete_event("turn-1", Some("done"))),
+    });
+
+    assert!(chat.loop_ui.enabled);
+    assert!(!chat.loop_ui.timer_pending);
+    assert_eq!(next_user_turn_text(&mut op_rx), "keep going");
+    assert_eq!(chat.loop_ui.completed_iterations, 2);
+
+    chat.handle_codex_event(Event {
+        id: "turn-complete".into(),
+        msg: EventMsg::TurnComplete(turn_complete_event("turn-2", Some("done"))),
+    });
+
+    assert!(!chat.loop_ui.enabled);
+    assert_no_user_turn(&mut op_rx);
+}
+
+#[tokio::test]
 async fn channel_loop_command_is_handled_locally() {
     let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     chat.thread_id = Some(ThreadId::new());
