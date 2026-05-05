@@ -115,6 +115,7 @@ pub(super) fn server_notification_thread_target(
             Some(notification.thread_id.as_str())
         }
         ServerNotification::ChannelMessage(_) => None,
+        ServerNotification::LoopControl(notification) => Some(notification.thread_id.as_str()),
         ServerNotification::ThreadRealtimeStarted(notification) => {
             Some(notification.thread_id.as_str())
         }
