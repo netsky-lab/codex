@@ -167,7 +167,7 @@ async fn loop_now_submits_after_completion_without_timer() {
 }
 
 #[tokio::test]
-async fn loop_stops_when_assistant_outputs_stop_command() {
+async fn loop_stops_when_model_calls_loop_control() {
     let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     chat.thread_id = Some(ThreadId::new());
 
@@ -181,11 +181,20 @@ async fn loop_stops_when_assistant_outputs_stop_command() {
     assert!(chat.loop_ui.enabled);
 
     chat.handle_codex_event(Event {
+        id: "loop-control".into(),
+        msg: EventMsg::LoopControl(LoopControlEvent {
+            action: LoopControlAction::Stop,
+            mode: None,
+            interval_minutes: None,
+            max_iterations: None,
+            prompt: None,
+            reason: Some("No useful next step remains.".to_string()),
+        }),
+    });
+
+    chat.handle_codex_event(Event {
         id: "turn-complete".into(),
-        msg: EventMsg::TurnComplete(turn_complete_event(
-            "turn-1",
-            Some("No useful next step remains.\n/loop stop"),
-        )),
+        msg: EventMsg::TurnComplete(turn_complete_event("turn-1", Some("done"))),
     });
 
     assert!(!chat.loop_ui.enabled);

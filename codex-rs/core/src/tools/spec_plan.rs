@@ -11,6 +11,7 @@ use crate::tools::handlers::GetGoalHandler;
 use crate::tools::handlers::ListMcpResourceTemplatesHandler;
 use crate::tools::handlers::ListMcpResourcesHandler;
 use crate::tools::handlers::LocalShellHandler;
+use crate::tools::handlers::LoopControlHandler;
 use crate::tools::handlers::McpHandler;
 use crate::tools::handlers::PlanHandler;
 use crate::tools::handlers::ReadMcpResourceHandler;
@@ -204,6 +205,7 @@ pub fn build_tool_registry_builder(
     builder.register_handler(Arc::new(RequestUserInputHandler {
         available_modes: config.request_user_input_available_modes.clone(),
     }));
+    builder.register_handler(Arc::new(LoopControlHandler));
 
     if config.request_permissions_tool_enabled {
         builder.register_handler(Arc::new(RequestPermissionsHandler));

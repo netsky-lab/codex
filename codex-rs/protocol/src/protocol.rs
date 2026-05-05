@@ -1387,6 +1387,9 @@ pub enum EventMsg {
     /// Inbound message pushed by an external MCP channel server.
     ChannelMessage(ChannelMessageEvent),
 
+    /// Structured request from the model to control the local loop runner.
+    LoopControl(LoopControlEvent),
+
     UndoStarted(UndoStartedEvent),
 
     UndoCompleted(UndoCompletedEvent),
@@ -2322,6 +2325,42 @@ pub struct DynamicToolCallResponseEvent {
     /// The duration of the dynamic tool call.
     #[ts(type = "string")]
     pub duration: Duration,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, TS, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LoopControlAction {
+    Start,
+    Stop,
+    Status,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, TS, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LoopControlMode {
+    Timed,
+    Immediate,
+    Once,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, TS, PartialEq, Eq)]
+pub struct LoopControlEvent {
+    pub action: LoopControlAction,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub mode: Option<LoopControlMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub interval_minutes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub max_iterations: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub prompt: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub reason: Option<String>,
 }
 
 impl McpToolCallEndEvent {

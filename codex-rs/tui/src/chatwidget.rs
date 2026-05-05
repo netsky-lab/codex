@@ -165,6 +165,9 @@ use codex_protocol::plan_tool::PlanItemArg as UpdatePlanItemArg;
 use codex_protocol::plan_tool::StepStatus as UpdatePlanItemStatus;
 use codex_protocol::protocol::ChannelMessageAttachment;
 use codex_protocol::protocol::ChannelMessageEvent;
+use codex_protocol::protocol::LoopControlAction;
+use codex_protocol::protocol::LoopControlEvent;
+use codex_protocol::protocol::LoopControlMode;
 use codex_protocol::request_permissions::RequestPermissionsEvent;
 use codex_protocol::user_input::ByteRange;
 use codex_protocol::user_input::TextElement;
@@ -1313,15 +1316,6 @@ fn format_channel_message_for_model(ev: &ChannelMessageEvent) -> String {
     });
     let json = serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string());
     format!("Inbound channel message:\n```json\n{json}\n```")
-}
-
-fn message_requests_loop_stop(message: &str) -> bool {
-    message.lines().any(|line| {
-        let trimmed = line.trim();
-        trimmed == "/loop stop"
-            || trimmed == "`/loop stop`"
-            || trimmed.eq_ignore_ascii_case("[[codex_loop_stop]]")
-    })
 }
 
 fn format_channel_message_for_display(ev: &ChannelMessageEvent) -> String {
@@ -2676,9 +2670,6 @@ impl ChatWidget {
         {
             self.record_agent_markdown(message);
         }
-        let loop_stop_requested = last_agent_message
-            .as_deref()
-            .is_some_and(message_requests_loop_stop);
         // For desktop notifications: prefer the notification payload, fall back to
         // the item-level copy source if present, otherwise send an empty string.
         let notification_response = last_agent_message
@@ -2761,13 +2752,6 @@ impl ChatWidget {
         // still show the prompt once after thread switch replay.
         if !from_replay {
             self.saw_plan_item_this_turn = false;
-        }
-        if loop_stop_requested && self.loop_ui.enabled {
-            self.stop_loop();
-            self.add_info_message(
-                "Loop stopped by assistant self-stop request.".to_string(),
-                /*hint*/ None,
-            );
         }
         // If there is a queued user message, send exactly one now to begin the next turn.
         let follow_up_started = self.maybe_send_next_queued_input();
@@ -5963,6 +5947,64 @@ impl ChatWidget {
                     .to_string(),
             ),
         );
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn on_loop_control(&mut self, event: LoopControlEvent) {
+        match event.action {
+            LoopControlAction::Status => self.add_loop_status_output(),
+            LoopControlAction::Stop => {
+                self.stop_loop();
+                let mut message = "Loop stopped by loop_control.".to_string();
+                if let Some(reason) = event.reason.as_deref().map(str::trim)
+                    && !reason.is_empty()
+                {
+                    message.push_str(" Reason: ");
+                    message.push_str(reason);
+                }
+                self.add_info_message(message, /*hint*/ None);
+            }
+            LoopControlAction::Start => self.start_loop_from_control(event),
+        }
+    }
+
+    #[allow(dead_code)]
+    fn start_loop_from_control(&mut self, event: LoopControlEvent) {
+        if event.max_iterations == Some(0) {
+            self.add_error_message("Loop max must be greater than zero.".to_string());
+            return;
+        }
+
+        let mode = event.mode.unwrap_or(LoopControlMode::Immediate);
+        let prompt = event.prompt.as_deref().unwrap_or_default();
+        match mode {
+            LoopControlMode::Timed => {
+                let Some(interval_minutes) = event.interval_minutes else {
+                    self.add_error_message(
+                        "loop_control start mode=timed requires interval_minutes.".to_string(),
+                    );
+                    return;
+                };
+                if interval_minutes == 0 {
+                    self.add_error_message(
+                        "Loop interval must be greater than zero minutes.".to_string(),
+                    );
+                    return;
+                }
+                self.start_loop(
+                    Some(interval_minutes),
+                    /*immediate*/ false,
+                    event.max_iterations,
+                    prompt,
+                );
+            }
+            LoopControlMode::Immediate => {
+                self.start_loop(None, /*immediate*/ true, event.max_iterations, prompt);
+            }
+            LoopControlMode::Once => {
+                self.start_loop(None, /*immediate*/ false, Some(1), prompt);
+            }
+        }
     }
 
     fn handle_loop_command_args(&mut self, args: &str) {

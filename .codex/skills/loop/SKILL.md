@@ -7,6 +7,8 @@ description: Use when Codex should continue work autonomously with the built-in 
 
 Codex has a built-in TUI slash command named `/loop` for autonomous continuation. Use it when the user asks you to keep working, continue a backlog, run periodic checks, or resume the next useful step without waiting for another user message.
 
+If the `loop_control` tool is available, use it to start, stop, or inspect the loop. Do not print `/loop stop` as assistant text; assistant text is transcript content, not a command channel.
+
 ## Commands
 
 - `/loop now [--max N] <task>` starts immediately and submits the next iteration as soon as each agent turn completes.
@@ -34,4 +36,4 @@ Use `--max` by default for bounded autonomous work unless the user explicitly wa
 
 ## Safety
 
-Do not start a loop for destructive, ambiguous, or high-risk work unless the user clearly asked for autonomous continuation. If the goal is complete or blocked, stop the loop with `/loop stop` and report the blocker.
+Do not start a loop for destructive, ambiguous, or high-risk work unless the user clearly asked for autonomous continuation. If the goal is complete or blocked, call `loop_control` with `action: "stop"` and a short reason, then report the blocker.
