@@ -54,6 +54,26 @@ metadata. `addressing.probably_addressed_to_bot` is a hint for multi-bot chats,
 not a hard filter: Codex can still respond when the surrounding conversation
 clearly asks this bot.
 
+Forum topics in Telegram supergroups are routed by `chat_id` plus
+`message_thread_id`. To allow only specific topics, either allow the whole chat
+and then restrict topic ids:
+
+```bash
+export TELEGRAM_ALLOWED_CHAT_IDS="-1001234567890"
+export TELEGRAM_ALLOWED_THREAD_IDS="12,34"
+```
+
+Or allow exact chat/topic routes, which is useful when several bots share the
+same supergroup:
+
+```bash
+export TELEGRAM_ALLOWED_ROUTES="-1001234567890:12,-1001234567890:34"
+```
+
+`TELEGRAM_ALLOWED_ROUTES="-1001234567890:*"` allows every topic in that
+supergroup. Without topic allowlists, `TELEGRAM_ALLOWED_CHAT_IDS` keeps the old
+behavior and allows the whole chat.
+
 ## Protocol
 
 The MCP server sends inbound Telegram messages as:
@@ -66,6 +86,12 @@ The MCP server sends inbound Telegram messages as:
     "text": "message text",
     "sender": "telegram user id",
     "chat_id": "telegram chat id",
+    "message_thread_id": 12,
+    "route": {
+      "chat_id": "telegram chat id",
+      "message_thread_id": 12,
+      "key": "telegram chat id:12"
+    },
     "id": "telegram:<chat_id>:<message_id>",
     "schema_version": 1,
     "bot": {
