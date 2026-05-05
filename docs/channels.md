@@ -15,6 +15,8 @@ args = ["./plugins/telegram-channel/scripts/telegram-channel.mjs"]
 env_vars = [
   "TELEGRAM_BOT_TOKEN",
   "TELEGRAM_ALLOWED_CHAT_IDS",
+  "TELEGRAM_ALLOWED_THREAD_IDS",
+  "TELEGRAM_ALLOWED_ROUTES",
   "TELEGRAM_POLL_TIMEOUT_SEC",
   "TELEGRAM_OFFSET_FILE",
   "TELEGRAM_DEBUG",
@@ -107,6 +109,16 @@ export TELEGRAM_BOT_TOKEN="123456:..."
 export TELEGRAM_ALLOWED_CHAT_IDS="123456789,987654321"
 ```
 
+For Telegram supergroup forum topics, route by `chat_id:message_thread_id`:
+
+```bash
+export TELEGRAM_ALLOWED_ROUTES="-1001234567890:12,-1001234567890:34"
+```
+
+`TELEGRAM_ALLOWED_ROUTES="-1001234567890:*"` allows all topics in one
+supergroup. `TELEGRAM_ALLOWED_THREAD_IDS` can also restrict topic ids after the
+chat has been allowed with `TELEGRAM_ALLOWED_CHAT_IDS`.
+
 For disposable local testing only:
 
 ```bash
@@ -122,6 +134,9 @@ Accepted inbound messages get a Telegram 👀 reaction by default; set
 Incoming Telegram files are downloaded under
 `$CODEX_HOME/telegram-channel-files` unless `TELEGRAM_DOWNLOAD_DIR` is set.
 `TELEGRAM_MAX_DOWNLOAD_BYTES` defaults to 20 MiB.
+Invalid numeric env values and malformed topic routes are ignored and reported
+by `telegram_status`; with `TELEGRAM_DEBUG=1`, the exact configuration warning
+is included.
 Group messages include `bot`, `reply_to`, and `addressing` metadata so agents
 in multi-bot chats can distinguish explicit mentions, commands, replies to this
 bot, and replies to other bots. These are routing hints, not hard filters.
