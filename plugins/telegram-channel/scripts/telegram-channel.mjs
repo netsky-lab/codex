@@ -6,26 +6,12 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
+const configWarnings = [];
 const token = process.env.TELEGRAM_BOT_TOKEN;
-const allowedChatIds = new Set(
-  (process.env.TELEGRAM_ALLOWED_CHAT_IDS ?? "")
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter(Boolean),
-);
-const allowedThreadIds = new Set(
-  (process.env.TELEGRAM_ALLOWED_THREAD_IDS ?? "")
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter(Boolean),
-);
-const allowedRoutes = new Set(
-  (process.env.TELEGRAM_ALLOWED_ROUTES ?? "")
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter(Boolean),
-);
-const pollTimeoutSec = Number(process.env.TELEGRAM_POLL_TIMEOUT_SEC ?? "25");
+const allowedChatIds = csvSet(process.env.TELEGRAM_ALLOWED_CHAT_IDS);
+const allowedThreadIds = threadIdSet(process.env.TELEGRAM_ALLOWED_THREAD_IDS);
+const allowedRoutes = routeSet(process.env.TELEGRAM_ALLOWED_ROUTES);
+const pollTimeoutSec = parseIntegerEnv("TELEGRAM_POLL_TIMEOUT_SEC", 25, { min: 1, max: 50 });
 const allowAllChats = process.env.TELEGRAM_ALLOW_ALL_CHATS === "1";
 const telegramDebug = process.env.TELEGRAM_DEBUG === "1";
 const seenReaction = String(process.env.TELEGRAM_SEEN_REACTION ?? "👀").trim();
@@ -35,7 +21,10 @@ const downloadDir =
     process.env.CODEX_HOME ?? path.join(os.homedir(), ".codex"),
     "telegram-channel-files",
   );
-const maxDownloadBytes = Number(process.env.TELEGRAM_MAX_DOWNLOAD_BYTES ?? 20 * 1024 * 1024);
+const maxDownloadBytes = parseIntegerEnv("TELEGRAM_MAX_DOWNLOAD_BYTES", 20 * 1024 * 1024, {
+  min: 1,
+  max: 2 * 1024 * 1024 * 1024,
+});
 const offsetFile =
   process.env.TELEGRAM_OFFSET_FILE ??
   path.join(
@@ -343,10 +332,10 @@ async function handleToolCall(message) {
   }
 
   const text = String(args.text ?? "").trim();
-  const route = routeForReply(args);
-  const chatId = String(args.chat_id ?? route.chatId ?? lastChatId ?? "").trim();
+  const route = resolveTelegramRoute(args);
+  const chatId = route.chatId;
   const replyToMessageId = args.reply_to_message_id ?? route.replyToMessageId;
-  const messageThreadId = args.message_thread_id ?? route.messageThreadId ?? lastMessageThreadId;
+  const messageThreadId = route.messageThreadId;
   if (!text) {
     sendToolResult(message.id, "text is required.", true);
     return;
@@ -379,9 +368,9 @@ async function handleToolCall(message) {
 }
 
 async function handleTypingTool(id, args) {
-  const route = routeForReply(args);
-  const chatId = String(args.chat_id ?? route.chatId ?? lastChatId ?? "").trim();
-  const messageThreadId = args.message_thread_id ?? route.messageThreadId ?? lastMessageThreadId;
+  const route = resolveTelegramRoute(args);
+  const chatId = route.chatId;
+  const messageThreadId = route.messageThreadId;
   const action = String(args.action ?? "typing").trim() || "typing";
   const seconds = clampInteger(args.seconds ?? 4, 1, 30);
   if (!chatId) {
@@ -397,15 +386,15 @@ async function handleTypingTool(id, args) {
 }
 
 async function handleReactTool(id, args) {
-  const route = routeForReply(args);
-  const chatId = String(args.chat_id ?? route.chatId ?? lastChatId ?? "").trim();
+  const route = resolveTelegramRoute(args);
+  const chatId = route.chatId;
   const messageId = args.message_id ?? route.messageId ?? route.replyToMessageId;
   const emoji = String(args.emoji ?? "👀").trim() || "👀";
   if (!chatId) {
     sendToolResult(id, "No Telegram chat is available yet.", true);
     return;
   }
-  const messageThreadId = route.messageThreadId ?? lastMessageThreadId;
+  const messageThreadId = route.messageThreadId;
   if (!chatAllowed(chatId, messageThreadId)) {
     sendToolResult(id, `Telegram route ${routeKey(chatId, messageThreadId)} is not allowed.`, true);
     return;
@@ -419,9 +408,9 @@ async function handleReactTool(id, args) {
 }
 
 async function handleSendFileTool(id, args) {
-  const route = routeForReply(args);
-  const chatId = String(args.chat_id ?? route.chatId ?? lastChatId ?? "").trim();
-  const messageThreadId = args.message_thread_id ?? route.messageThreadId ?? lastMessageThreadId;
+  const route = resolveTelegramRoute(args);
+  const chatId = route.chatId;
+  const messageThreadId = route.messageThreadId;
   const filePath = String(args.path ?? "").trim();
   const caption = String(args.caption ?? "").trim();
   if (!chatId) {
@@ -478,6 +467,7 @@ function startPolling() {
     return;
   }
   polling = true;
+  logConfigWarnings();
   void pollLoop();
 }
 
@@ -881,6 +871,73 @@ function ignoreUpdate(reason) {
   lastIgnoredReason = reason;
 }
 
+function csvSet(value) {
+  return new Set(
+    String(value ?? "")
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean),
+  );
+}
+
+function threadIdSet(value) {
+  const set = new Set();
+  for (const entry of csvSet(value)) {
+    const thread = normalizeThreadId(entry);
+    if (thread === undefined) {
+      configWarnings.push(`ignored invalid TELEGRAM_ALLOWED_THREAD_IDS entry: ${entry}`);
+      continue;
+    }
+    set.add(String(thread));
+  }
+  return set;
+}
+
+function routeSet(value) {
+  const set = new Set();
+  for (const entry of csvSet(value)) {
+    const normalized = normalizeRouteEntry(entry);
+    if (!normalized) {
+      configWarnings.push(`ignored invalid TELEGRAM_ALLOWED_ROUTES entry: ${entry}`);
+      continue;
+    }
+    set.add(normalized);
+  }
+  return set;
+}
+
+function normalizeRouteEntry(entry) {
+  const index = entry.lastIndexOf(":");
+  if (index === -1) {
+    return entry;
+  }
+  const chatId = entry.slice(0, index).trim();
+  const threadId = entry.slice(index + 1).trim();
+  if (!chatId) {
+    return null;
+  }
+  if (threadId === "*") {
+    return `${chatId}:*`;
+  }
+  const thread = normalizeThreadId(threadId);
+  return thread === undefined ? null : routeKey(chatId, thread);
+}
+
+function parseIntegerEnv(name, defaultValue, options) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") {
+    return defaultValue;
+  }
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < options.min || value > options.max) {
+    configWarnings.push(
+      `ignored invalid ${name}=${raw}; using ${defaultValue} (${options.min}-${options.max})`,
+    );
+    return defaultValue;
+  }
+  return value;
+}
+
 function chatAllowed(chatId, messageThreadId) {
   return chatAllowedWithSets(chatId, messageThreadId, {
     allowAllChats,
@@ -994,6 +1051,23 @@ function routeForReply(args) {
   return recentMessages.get(id) ?? {};
 }
 
+function resolveTelegramRoute(args) {
+  const explicitChatId = args.chat_id !== undefined && args.chat_id !== null;
+  if (explicitChatId) {
+    return {
+      chatId: String(args.chat_id).trim(),
+      messageThreadId: args.message_thread_id,
+    };
+  }
+
+  const route = routeForReply(args);
+  return {
+    ...route,
+    chatId: String(route.chatId ?? lastChatId ?? "").trim(),
+    messageThreadId: args.message_thread_id ?? route.messageThreadId ?? lastMessageThreadId,
+  };
+}
+
 function rememberMessage(id, route) {
   recentMessages.set(id, route);
   while (recentMessages.size > 200) {
@@ -1064,16 +1138,26 @@ function statusText() {
     `bot_username=${botIdentity?.username ?? "unknown"}`,
     `bot_id=${botIdentity?.id ?? "unknown"}`,
   ];
+  if (configWarnings.length > 0) {
+    lines.push(`config_warnings=${configWarnings.length}`);
+  }
 
   if (telegramDebug) {
     lines.push(
       `seen_updates=${seenUpdates}`,
       `last_ignored_reason=${lastIgnoredReason}`,
       `last_update=${lastUpdateSummary}`,
+      ...configWarnings.map((warning) => `config_warning=${warning}`),
     );
   }
 
   return lines.join("\n");
+}
+
+function logConfigWarnings() {
+  for (const warning of configWarnings) {
+    logError(warning);
+  }
 }
 
 function summarizeUpdate(update) {
@@ -1104,6 +1188,20 @@ async function runSelfTest() {
   const route = routeForReply({ channel_message_id: "telegram:1:2" });
   if (route.chatId !== "1" || route.messageId !== 2 || route.replyToMessageId !== 2 || route.messageThreadId !== 10) {
     throw new Error("routeForReply self-test failed");
+  }
+  lastChatId = "2";
+  lastMessageThreadId = 99;
+  const explicitRoute = resolveTelegramRoute({ chat_id: "3" });
+  if (explicitRoute.chatId !== "3" || explicitRoute.messageThreadId !== undefined) {
+    throw new Error("resolveTelegramRoute explicit chat self-test failed");
+  }
+  const rememberedRoute = resolveTelegramRoute({ channel_message_id: "telegram:1:2" });
+  if (rememberedRoute.chatId !== "1" || rememberedRoute.messageThreadId !== 10) {
+    throw new Error("resolveTelegramRoute remembered self-test failed");
+  }
+  const fallbackRoute = resolveTelegramRoute({});
+  if (fallbackRoute.chatId !== "2" || fallbackRoute.messageThreadId !== 99) {
+    throw new Error("resolveTelegramRoute fallback self-test failed");
   }
   if (!chatAllowedWithSets("-1001", 10, {
     allowAllChats: false,
@@ -1136,6 +1234,16 @@ async function runSelfTest() {
     allowedRoutes: new Set(["-1001:20"]),
   })) {
     throw new Error("allowed chat fallback self-test failed");
+  }
+  if (normalizeRouteEntry("-1001:*") !== "-1001:*" || normalizeRouteEntry("-1001:020") !== "-1001:20") {
+    throw new Error("normalizeRouteEntry self-test failed");
+  }
+  const warningsBefore = configWarnings.length;
+  if (routeSet("-1001:20,bad:thread").size !== 1 || configWarnings.length !== warningsBefore + 1) {
+    throw new Error("routeSet warning self-test failed");
+  }
+  if (threadIdSet("1,nope,2").size !== 2 || configWarnings.length !== warningsBefore + 2) {
+    throw new Error("threadIdSet warning self-test failed");
   }
   const reaction = reactionPayload("1", 2, "👀", false);
   if (reaction.reaction[0].emoji !== "👀" || reaction.message_id !== 2) {
