@@ -21,6 +21,7 @@ pub enum ToolHandlerKind {
     Goal,
     ListAgentsV2,
     ListDir,
+    LoopControl,
     Mcp,
     McpResource,
     Plan,

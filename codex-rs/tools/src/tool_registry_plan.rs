@@ -36,6 +36,7 @@ use crate::create_list_dir_tool;
 use crate::create_list_mcp_resource_templates_tool;
 use crate::create_list_mcp_resources_tool;
 use crate::create_local_shell_tool;
+use crate::create_loop_control_tool;
 use crate::create_read_mcp_resource_tool;
 use crate::create_report_agent_job_result_tool;
 use crate::create_request_permissions_tool;
@@ -218,6 +219,14 @@ pub fn build_tool_registry_plan(
         config.code_mode_enabled,
     );
     plan.register_handler("update_plan", ToolHandlerKind::Plan);
+
+    plan.push_spec(
+        create_loop_control_tool(),
+        /*supports_parallel_tool_calls*/ false,
+        config.code_mode_enabled,
+    );
+    plan.register_handler("loop_control", ToolHandlerKind::LoopControl);
+
     if config.goal_tools {
         plan.push_spec(
             create_get_goal_tool(),

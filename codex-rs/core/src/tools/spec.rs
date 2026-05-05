@@ -82,6 +82,7 @@ pub(crate) fn build_specs_with_discoverable_tools(
     use crate::tools::handlers::DynamicToolHandler;
     use crate::tools::handlers::GoalHandler;
     use crate::tools::handlers::ListDirHandler;
+    use crate::tools::handlers::LoopControlHandler;
     use crate::tools::handlers::McpHandler;
     use crate::tools::handlers::McpResourceHandler;
     use crate::tools::handlers::PlanHandler;
@@ -228,6 +229,9 @@ pub(crate) fn build_specs_with_discoverable_tools(
             }
             ToolHandlerKind::ListDir => {
                 builder.register_handler(handler.name, Arc::new(ListDirHandler));
+            }
+            ToolHandlerKind::LoopControl => {
+                builder.register_handler(handler.name, Arc::new(LoopControlHandler));
             }
             ToolHandlerKind::Mcp => {
                 builder.register_handler(handler.name, mcp_handler.clone());
