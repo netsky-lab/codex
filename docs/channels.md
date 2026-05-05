@@ -48,6 +48,29 @@ delivery is controlled locally with `/channels`:
 Paused messages are queued in memory and submitted on resume. Muted messages are
 dropped with an audit entry in the TUI history.
 
+## Architecture
+
+Channels are a generic MCP delivery path, not a Telegram-specific code path.
+The Codex core only knows about `ChannelMessageEvent` values produced by trusted
+MCP servers with `channel.enabled = true`.
+
+The delivery path is:
+
+1. A channel-capable MCP server emits a channel notification.
+2. `codex-mcp` validates the server channel policy, deduplicates by channel
+   message id, applies the configured rate limit, and emits
+   `EventMsg::ChannelMessage`.
+3. The TUI records an audit entry, applies local `/channels` state
+   (`pause`, `resume`, `mute`, `unmute`, `clear`), and submits accepted messages
+   to the model as structured user input.
+4. The app server forwards channel messages to app clients as
+   `channel/message`.
+
+Transport integrations live outside that generic path. The Telegram bridge is a
+plugin-provided MCP server that maps Telegram Bot API updates into channel
+notifications and exposes Telegram-specific tools such as reply, reaction,
+typing, and file upload.
+
 ## Notification Protocol
 
 Channel servers can send JSON-RPC notifications with one of these methods when
