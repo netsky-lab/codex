@@ -223,6 +223,9 @@ impl ChatWidget {
                     );
                 }
             }
+            SlashCommand::Loop => {
+                self.add_loop_status_output();
+            }
             SlashCommand::Collab => {
                 if !self.collaboration_modes_enabled() {
                     self.add_info_message(
@@ -631,6 +634,9 @@ impl ChatWidget {
             SlashCommand::Channels => {
                 self.handle_channels_command_args(trimmed);
             }
+            SlashCommand::Loop => {
+                self.handle_loop_command_args(trimmed);
+            }
             SlashCommand::Rename if !trimmed.is_empty() => {
                 if !self.ensure_thread_rename_allowed() {
                     return;
@@ -873,7 +879,7 @@ impl ChatWidget {
         self.queued_command_drain_result(cmd)
     }
 
-    fn builtin_command_flags(&self) -> slash_commands::BuiltinCommandFlags {
+    pub(super) fn builtin_command_flags(&self) -> slash_commands::BuiltinCommandFlags {
         #[cfg(target_os = "windows")]
         let allow_elevate_sandbox = {
             let windows_sandbox_level = WindowsSandboxLevel::from_config(&self.config);
@@ -911,6 +917,7 @@ impl ChatWidget {
             | SlashCommand::MemoryUpdate
             | SlashCommand::Mcp
             | SlashCommand::Channels
+            | SlashCommand::Loop
             | SlashCommand::Apps
             | SlashCommand::Plugins
             | SlashCommand::Rollout

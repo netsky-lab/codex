@@ -57,6 +57,8 @@ use crate::bottom_pane::StatusSurfacePreviewData;
 use crate::bottom_pane::StatusSurfacePreviewItem;
 use crate::bottom_pane::TerminalTitleItem;
 use crate::bottom_pane::TerminalTitleSetupView;
+use crate::bottom_pane::prompt_args::parse_slash_name;
+use crate::bottom_pane::slash_commands;
 use crate::diff_model::FileChange;
 use crate::legacy_core::DEFAULT_AGENTS_MD_FILENAME;
 use crate::legacy_core::config::Config;
@@ -688,6 +690,38 @@ struct ChannelUiState {
     recent_id_set: HashSet<String>,
 }
 
+#[derive(Default)]
+struct LoopUiState {
+    enabled: bool,
+    completed_iterations: usize,
+    max_iterations: Option<usize>,
+    prompt: String,
+}
+
+impl LoopUiState {
+    const DEFAULT_PROMPT: &'static str = "Continue working autonomously. Inspect the current project state, choose the next useful step toward the active goal, make progress, verify what you changed when possible, and report what you did. If there is no useful next step, explain that and wait for the user.";
+
+    fn active_prompt(&self) -> &str {
+        if self.prompt.trim().is_empty() {
+            Self::DEFAULT_PROMPT
+        } else {
+            self.prompt.as_str()
+        }
+    }
+
+    fn status_summary(&self) -> String {
+        let state = if self.enabled { "active" } else { "stopped" };
+        let max = self
+            .max_iterations
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "unlimited".to_string());
+        format!(
+            "Loop is {state}. completed={}, max={max}",
+            self.completed_iterations
+        )
+    }
+}
+
 impl ChannelUiState {
     fn remember_message_id(&mut self, id: &str) -> bool {
         if !self.recent_id_set.insert(id.to_string()) {
@@ -896,6 +930,7 @@ pub(crate) struct ChatWidget {
     /// Tracks whether the buffered next round has seen any `Starting` update yet.
     mcp_startup_pending_next_round_saw_starting: bool,
     channel_ui: ChannelUiState,
+    loop_ui: LoopUiState,
     connectors_cache: ConnectorsCacheState,
     connectors_partial_snapshot: Option<ConnectorsSnapshot>,
     connectors_prefetch_in_flight: bool,
@@ -2702,6 +2737,11 @@ impl ChatWidget {
         }
         // If there is a queued user message, send exactly one now to begin the next turn.
         let follow_up_started = self.maybe_send_next_queued_input();
+        let loop_follow_up_started = if follow_up_started {
+            false
+        } else {
+            self.maybe_submit_loop_follow_up()
+        };
         let active_goal_continuing = self
             .current_goal_status
             .as_ref()
@@ -2710,7 +2750,7 @@ impl ChatWidget {
         // Queued follow-up input and active goal continuation both start the
         // next turn immediately, so notifying at that boundary would feel like
         // a false "needs attention".
-        if !follow_up_started && !active_goal_continuing {
+        if !follow_up_started && !loop_follow_up_started && !active_goal_continuing {
             self.notify(Notification::AgentTurnComplete {
                 response: notification_response,
             });
@@ -5103,6 +5143,7 @@ impl ChatWidget {
             mcp_startup_pending_next_round: HashMap::new(),
             mcp_startup_pending_next_round_saw_starting: false,
             channel_ui: ChannelUiState::default(),
+            loop_ui: LoopUiState::default(),
             connectors_cache: ConnectorsCacheState::default(),
             connectors_partial_snapshot: None,
             connectors_prefetch_in_flight: false,
@@ -5770,7 +5811,40 @@ impl ChatWidget {
             self.channel_ui.queued.push_back(ev);
             return;
         }
+        if self.try_handle_channel_control_message(&ev) {
+            return;
+        }
         self.submit_channel_message(ev);
+    }
+
+    fn try_handle_channel_control_message(&mut self, ev: &ChannelMessageEvent) -> bool {
+        let Some((name, rest, _)) = parse_slash_name(ev.text.trim()) else {
+            return false;
+        };
+        if name.contains('/') {
+            return false;
+        }
+        let Some(cmd) = slash_commands::find_builtin_command(name, self.builtin_command_flags())
+        else {
+            return false;
+        };
+        if cmd != SlashCommand::Loop {
+            return false;
+        }
+        self.add_info_message(
+            format!(
+                "Handled channel control command {} from {}.",
+                ev.id, ev.server
+            ),
+            /*hint*/ None,
+        );
+        if rest.trim().is_empty() {
+            self.dispatch_command(cmd);
+        } else {
+            self.dispatch_command_with_args(cmd, rest.trim().to_string(), Vec::new());
+        }
+        self.channel_ui.submitted = self.channel_ui.submitted.saturating_add(1);
+        true
     }
 
     fn submit_channel_message(&mut self, ev: ChannelMessageEvent) {
@@ -5849,6 +5923,115 @@ impl ChatWidget {
                 "Usage: /channels [status|pause|resume|mute|unmute|clear]".to_string(),
             ),
         }
+    }
+
+    fn add_loop_status_output(&mut self) {
+        self.add_info_message(
+            self.loop_ui.status_summary(),
+            Some(
+                "Use /loop start [--max N] [prompt], /loop once [prompt], /loop stop.".to_string(),
+            ),
+        );
+    }
+
+    fn handle_loop_command_args(&mut self, args: &str) {
+        let trimmed = args.trim();
+        let mut parts = trimmed.split_whitespace();
+        let command = parts.next().unwrap_or("status").to_ascii_lowercase();
+        match command.as_str() {
+            "" | "status" => self.add_loop_status_output(),
+            "stop" | "pause" => {
+                self.loop_ui.enabled = false;
+                self.add_loop_status_output();
+            }
+            "start" | "resume" => {
+                let rest = trimmed[command.len()..].trim();
+                self.start_loop_from_args(rest, None);
+            }
+            "once" => {
+                let rest = trimmed[command.len()..].trim();
+                self.start_loop_from_args(rest, Some(1));
+            }
+            _ => self.add_error_message(
+                "Usage: /loop [status|start|once|stop] [--max N] [prompt]".to_string(),
+            ),
+        }
+    }
+
+    fn start_loop_from_args(&mut self, args: &str, forced_max: Option<usize>) {
+        let mut tokens = args.split_whitespace().peekable();
+        let mut max_iterations = forced_max;
+        let mut prompt_parts: Vec<&str> = Vec::new();
+
+        while let Some(token) = tokens.next() {
+            if token == "--max" {
+                let Some(value) = tokens.next() else {
+                    self.add_error_message("Usage: /loop start [--max N] [prompt]".to_string());
+                    return;
+                };
+                let Ok(parsed) = value.parse::<usize>() else {
+                    self.add_error_message("Loop max must be a positive number.".to_string());
+                    return;
+                };
+                if parsed == 0 {
+                    self.add_error_message("Loop max must be greater than zero.".to_string());
+                    return;
+                }
+                max_iterations = Some(parsed);
+            } else {
+                prompt_parts.push(token);
+                prompt_parts.extend(tokens);
+                break;
+            }
+        }
+
+        self.loop_ui.enabled = true;
+        self.loop_ui.completed_iterations = 0;
+        self.loop_ui.max_iterations = max_iterations;
+        self.loop_ui.prompt = prompt_parts.join(" ");
+        self.add_loop_status_output();
+        if !self.agent_turn_running && !self.has_queued_follow_up_messages() {
+            self.maybe_submit_loop_follow_up();
+        }
+    }
+
+    fn maybe_submit_loop_follow_up(&mut self) -> bool {
+        if !self.loop_ui.enabled || !self.is_session_configured() || self.agent_turn_running {
+            return false;
+        }
+        if let Some(max_iterations) = self.loop_ui.max_iterations
+            && self.loop_ui.completed_iterations >= max_iterations
+        {
+            self.loop_ui.enabled = false;
+            self.add_info_message(
+                format!("Loop stopped after {max_iterations} iteration(s)."),
+                /*hint*/ None,
+            );
+            return false;
+        }
+
+        self.loop_ui.completed_iterations = self.loop_ui.completed_iterations.saturating_add(1);
+        let iteration = self.loop_ui.completed_iterations;
+        let prompt = self.loop_ui.active_prompt().to_string();
+        self.add_info_message(
+            format!("Loop iteration {iteration} submitted."),
+            /*hint*/ None,
+        );
+        self.submit_user_message_with_history_and_shell_escape_policy(
+            UserMessage {
+                text: prompt,
+                local_images: Vec::new(),
+                remote_image_urls: Vec::new(),
+                text_elements: Vec::new(),
+                mention_bindings: Vec::new(),
+            },
+            UserMessageHistoryRecord::Override(UserMessageHistoryOverride {
+                text: format!("/loop iteration {iteration}"),
+                text_elements: Vec::new(),
+            }),
+            ShellEscapePolicy::Disallow,
+        )
+        .0
     }
 
     fn submit_user_message_with_history_record(
