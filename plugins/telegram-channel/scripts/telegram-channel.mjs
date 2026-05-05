@@ -31,11 +31,15 @@ const offsetFile =
     process.env.CODEX_HOME ?? path.join(os.homedir(), ".codex"),
     "telegram-channel-offset.json",
   );
+const pollLockFile = process.env.TELEGRAM_POLL_LOCK_FILE ?? `${offsetFile}.lock`;
+const routeCacheFile = process.env.TELEGRAM_ROUTE_CACHE_FILE ?? `${offsetFile}.routes.json`;
 const maxTelegramMessageLength = 4096;
 
 let nextId = 1;
 let initialized = false;
 let polling = false;
+let pollLockStatus = "not_acquired";
+let pollLockHandle = null;
 let updateOffset = 0;
 let lastChatId = null;
 let lastMessageThreadId = undefined;
@@ -91,8 +95,15 @@ rl.on("line", async (line) => {
   }
 });
 
-process.on("SIGINT", () => process.exit(0));
-process.on("SIGTERM", () => process.exit(0));
+process.on("SIGINT", () => {
+  void shutdown();
+});
+process.on("SIGTERM", () => {
+  void shutdown();
+});
+process.on("exit", () => {
+  void releasePollingLock();
+});
 
 async function handleRequest(message) {
   switch (message.method) {
@@ -332,7 +343,7 @@ async function handleToolCall(message) {
   }
 
   const text = String(args.text ?? "").trim();
-  const route = resolveTelegramRoute(args);
+  const route = await resolveTelegramRoute(args);
   const chatId = route.chatId;
   const replyToMessageId = args.reply_to_message_id ?? route.replyToMessageId;
   const messageThreadId = route.messageThreadId;
@@ -368,7 +379,7 @@ async function handleToolCall(message) {
 }
 
 async function handleTypingTool(id, args) {
-  const route = resolveTelegramRoute(args);
+  const route = await resolveTelegramRoute(args);
   const chatId = route.chatId;
   const messageThreadId = route.messageThreadId;
   const action = String(args.action ?? "typing").trim() || "typing";
@@ -386,7 +397,7 @@ async function handleTypingTool(id, args) {
 }
 
 async function handleReactTool(id, args) {
-  const route = resolveTelegramRoute(args);
+  const route = await resolveTelegramRoute(args);
   const chatId = route.chatId;
   const messageId = args.message_id ?? route.messageId ?? route.replyToMessageId;
   const emoji = String(args.emoji ?? "👀").trim() || "👀";
@@ -408,7 +419,7 @@ async function handleReactTool(id, args) {
 }
 
 async function handleSendFileTool(id, args) {
-  const route = resolveTelegramRoute(args);
+  const route = await resolveTelegramRoute(args);
   const chatId = route.chatId;
   const messageThreadId = route.messageThreadId;
   const filePath = String(args.path ?? "").trim();
@@ -466,8 +477,18 @@ function startPolling() {
   if (polling || !initialized) {
     return;
   }
-  polling = true;
   logConfigWarnings();
+  void startPollingWithLock();
+}
+
+async function startPollingWithLock() {
+  if (polling) {
+    return;
+  }
+  if (!(await acquirePollingLock())) {
+    return;
+  }
+  polling = true;
   void pollLoop();
 }
 
@@ -501,9 +522,79 @@ async function pollLoop() {
         await writeOffset(updateOffset);
       }
     } catch (error) {
-      logError(`Telegram polling failed: ${error.message}`);
+      logError(`Telegram polling failed: ${describeError(error)}`);
       await sleep(error.retryAfterMs ?? 3000);
     }
+  }
+}
+
+async function acquirePollingLock() {
+  try {
+    await fs.mkdir(path.dirname(pollLockFile), { recursive: true });
+    pollLockHandle = await fs.open(pollLockFile, "wx", 0o600);
+    await pollLockHandle.writeFile(
+      `${JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() })}\n`,
+    );
+    pollLockStatus = "acquired";
+    return true;
+  } catch (error) {
+    if (error?.code === "EEXIST") {
+      if (!(await lockHeldByLiveProcess())) {
+        await fs.unlink(pollLockFile).catch(() => {});
+        return acquirePollingLock();
+      }
+      pollLockStatus = "held_by_other_process";
+      logInfo(`Telegram polling disabled in this MCP process because lock is held: ${pollLockFile}`);
+      return false;
+    }
+    pollLockStatus = `failed:${error?.code ?? "unknown"}`;
+    logError(`Telegram polling lock failed: ${describeError(error)}`);
+    return false;
+  }
+}
+
+async function lockHeldByLiveProcess() {
+  const raw = await fs.readFile(pollLockFile, "utf8").catch(() => "");
+  const lock = safeJsonParse(raw);
+  const pid = lock?.pid;
+  if (!Number.isSafeInteger(pid) || pid <= 0) {
+    return true;
+  }
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (error?.code === "ESRCH") {
+      return false;
+    }
+    return true;
+  }
+}
+
+function safeJsonParse(raw) {
+  try {
+    return JSON.parse(raw || "{}");
+  } catch {
+    return null;
+  }
+}
+
+async function shutdown() {
+  await releasePollingLock();
+  process.exit(0);
+}
+
+async function releasePollingLock() {
+  if (!pollLockHandle) {
+    return;
+  }
+  const handle = pollLockHandle;
+  pollLockHandle = null;
+  try {
+    await handle.close();
+    await fs.unlink(pollLockFile);
+  } catch {
+    // Best-effort cleanup; stale locks can be removed by deleting the lock file.
   }
 }
 
@@ -535,7 +626,7 @@ async function handleTelegramUpdate(update) {
   const replyTo = summarizeReplyToMessage(message.reply_to_message);
   const sender = summarizeTelegramUser(message.from);
   const addressing = computeAddressing(message, text, replyTo);
-  rememberMessage(channelMessageId, {
+  await rememberMessage(channelMessageId, {
     chatId,
     messageId: message.message_id,
     replyToMessageId: message.message_id,
@@ -804,7 +895,12 @@ async function downloadTelegramFile(filePath, candidate, chatId, messageId) {
     candidate.fileName ?? `telegram-${chatId}-${messageId}-${candidate.kind}${extension}`,
   );
   const target = path.join(downloadDir, `${Date.now()}-${baseName}`);
-  const response = await fetch(`https://api.telegram.org/file/bot${token}/${filePath}`);
+  let response;
+  try {
+    response = await fetch(`https://api.telegram.org/file/bot${token}/${filePath}`);
+  } catch (error) {
+    throw enrichFetchError("Telegram file download", error);
+  }
   if (!response.ok) {
     throw new Error(`Telegram file download failed: ${response.status}`);
   }
@@ -997,13 +1093,18 @@ function routeKey(chatId, messageThreadId) {
 async function telegram(method, payload) {
   let attempt = 0;
   for (;;) {
-    const response = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    });
+    let response;
+    try {
+      response = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+    } catch (error) {
+      throw enrichFetchError(`Telegram API ${method}`, error);
+    }
     const json = await response.json().catch(() => null);
     if (response.ok && json?.ok) {
       return json.result;
@@ -1032,10 +1133,15 @@ async function telegramMultipart(method, fields, fileField, filePath) {
   }
   const blob = await openAsBlob(filePath);
   form.append(fileField, blob, path.basename(filePath));
-  const response = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
-    method: "POST",
-    body: form,
-  });
+  let response;
+  try {
+    response = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+      method: "POST",
+      body: form,
+    });
+  } catch (error) {
+    throw enrichFetchError(`Telegram API ${method}`, error);
+  }
   const json = await response.json().catch(() => null);
   if (response.ok && json?.ok) {
     return json.result;
@@ -1043,15 +1149,54 @@ async function telegramMultipart(method, fields, fileField, filePath) {
   throw new Error(json?.description ?? `Telegram API ${method} failed`);
 }
 
-function routeForReply(args) {
+function enrichFetchError(context, error) {
+  const enriched = new Error(`${context} fetch failed: ${describeError(error)}`);
+  enriched.cause = error;
+  return enriched;
+}
+
+function describeError(error) {
+  const parts = [error?.message ?? String(error)];
+  const cause = error?.cause;
+  if (cause) {
+    const causeParts = [];
+    if (cause.code) {
+      causeParts.push(`code=${cause.code}`);
+    }
+    if (cause.errno) {
+      causeParts.push(`errno=${cause.errno}`);
+    }
+    if (cause.syscall) {
+      causeParts.push(`syscall=${cause.syscall}`);
+    }
+    if (cause.hostname) {
+      causeParts.push(`hostname=${cause.hostname}`);
+    }
+    if (cause.address) {
+      causeParts.push(`address=${cause.address}`);
+    }
+    if (cause.port) {
+      causeParts.push(`port=${cause.port}`);
+    }
+    if (cause.message && cause.message !== error.message) {
+      causeParts.push(cause.message);
+    }
+    if (causeParts.length > 0) {
+      parts.push(`cause(${causeParts.join(", ")})`);
+    }
+  }
+  return parts.join(" ");
+}
+
+async function routeForReply(args) {
   const id = String(args.channel_message_id ?? "").trim();
   if (!id) {
     return {};
   }
-  return recentMessages.get(id) ?? {};
+  return recentMessages.get(id) ?? (await routeFromCache(id)) ?? routeFromChannelMessageId(id) ?? {};
 }
 
-function resolveTelegramRoute(args) {
+async function resolveTelegramRoute(args) {
   const explicitChatId = args.chat_id !== undefined && args.chat_id !== null;
   if (explicitChatId) {
     return {
@@ -1060,7 +1205,7 @@ function resolveTelegramRoute(args) {
     };
   }
 
-  const route = routeForReply(args);
+  const route = await routeForReply(args);
   return {
     ...route,
     chatId: String(route.chatId ?? lastChatId ?? "").trim(),
@@ -1068,12 +1213,41 @@ function resolveTelegramRoute(args) {
   };
 }
 
-function rememberMessage(id, route) {
+async function rememberMessage(id, route) {
   recentMessages.set(id, route);
   while (recentMessages.size > 200) {
     const oldest = recentMessages.keys().next().value;
     recentMessages.delete(oldest);
   }
+  await writeRouteCache();
+}
+
+async function routeFromCache(id) {
+  const raw = await fs.readFile(routeCacheFile, "utf8").catch(() => "");
+  const cache = safeJsonParse(raw);
+  const route = cache?.routes?.[id];
+  return route && typeof route === "object" ? route : null;
+}
+
+async function writeRouteCache() {
+  await fs.mkdir(path.dirname(routeCacheFile), { recursive: true });
+  const routes = Object.fromEntries(recentMessages.entries());
+  const tmp = `${routeCacheFile}.${process.pid}.tmp`;
+  await fs.writeFile(tmp, `${JSON.stringify({ routes })}\n`, { mode: 0o600 });
+  await fs.rename(tmp, routeCacheFile);
+}
+
+function routeFromChannelMessageId(id) {
+  const match = /^telegram:(.+):(\d+)$/.exec(id);
+  if (!match) {
+    return null;
+  }
+  const messageId = Number(match[2]);
+  return {
+    chatId: match[1],
+    messageId,
+    replyToMessageId: messageId,
+  };
 }
 
 function splitTelegramMessage(text) {
@@ -1124,6 +1298,8 @@ function statusText() {
     `polling=${polling}`,
     "channel_delivery=logging_notification_v1",
     `debug=${telegramDebug}`,
+    `poll_lock=${pollLockStatus}`,
+    `poll_lock_file=${pollLockFile}`,
     `allow_all_chats=${allowAllChats}`,
     `allowed_chats=${allowedChatIds.size}`,
     `allowed_threads=${allowedThreadIds.size}`,
@@ -1134,6 +1310,7 @@ function statusText() {
     `ignored_updates=${ignoredUpdates}`,
     `recent_routes=${recentMessages.size}`,
     `offset_file=${offsetFile}`,
+    `route_cache_file=${routeCacheFile}`,
     `download_dir=${downloadDir}`,
     `bot_username=${botIdentity?.username ?? "unknown"}`,
     `bot_id=${botIdentity?.id ?? "unknown"}`,
@@ -1184,22 +1361,26 @@ async function runSelfTest() {
   if (chunks.length !== 2 || chunks[0].length !== maxTelegramMessageLength || chunks[1].length !== 2) {
     throw new Error("splitTelegramMessage self-test failed");
   }
-  rememberMessage("telegram:1:2", { chatId: "1", messageId: 2, replyToMessageId: 2, messageThreadId: 10 });
-  const route = routeForReply({ channel_message_id: "telegram:1:2" });
+  await rememberMessage("telegram:1:2", { chatId: "1", messageId: 2, replyToMessageId: 2, messageThreadId: 10 });
+  const route = await routeForReply({ channel_message_id: "telegram:1:2" });
   if (route.chatId !== "1" || route.messageId !== 2 || route.replyToMessageId !== 2 || route.messageThreadId !== 10) {
     throw new Error("routeForReply self-test failed");
   }
   lastChatId = "2";
   lastMessageThreadId = 99;
-  const explicitRoute = resolveTelegramRoute({ chat_id: "3" });
+  const explicitRoute = await resolveTelegramRoute({ chat_id: "3" });
   if (explicitRoute.chatId !== "3" || explicitRoute.messageThreadId !== undefined) {
     throw new Error("resolveTelegramRoute explicit chat self-test failed");
   }
-  const rememberedRoute = resolveTelegramRoute({ channel_message_id: "telegram:1:2" });
+  const rememberedRoute = await resolveTelegramRoute({ channel_message_id: "telegram:1:2" });
   if (rememberedRoute.chatId !== "1" || rememberedRoute.messageThreadId !== 10) {
     throw new Error("resolveTelegramRoute remembered self-test failed");
   }
-  const fallbackRoute = resolveTelegramRoute({});
+  const parsedRoute = await resolveTelegramRoute({ channel_message_id: "telegram:-1001:22" });
+  if (parsedRoute.chatId !== "-1001" || parsedRoute.messageId !== 22 || parsedRoute.replyToMessageId !== 22) {
+    throw new Error("resolveTelegramRoute parsed channel id self-test failed");
+  }
+  const fallbackRoute = await resolveTelegramRoute({});
   if (fallbackRoute.chatId !== "2" || fallbackRoute.messageThreadId !== 99) {
     throw new Error("resolveTelegramRoute fallback self-test failed");
   }
@@ -1336,6 +1517,14 @@ function sendChannelNotification(method, params) {
 function logError(message) {
   sendNotification("notifications/message", {
     level: "error",
+    logger: "telegram-channel",
+    data: message,
+  });
+}
+
+function logInfo(message) {
+  sendNotification("notifications/message", {
+    level: "info",
     logger: "telegram-channel",
     data: message,
   });
