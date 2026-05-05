@@ -118,6 +118,7 @@ fn stdio_mcp(command: &str) -> McpServerConfig {
         scopes: None,
         oauth_resource: None,
         tools: HashMap::new(),
+        channel: Default::default(),
     }
 }
 
@@ -142,6 +143,7 @@ fn http_mcp(url: &str) -> McpServerConfig {
         scopes: None,
         oauth_resource: None,
         tools: HashMap::new(),
+        channel: Default::default(),
     }
 }
 
@@ -4047,6 +4049,7 @@ async fn replace_mcp_servers_round_trips_entries() -> anyhow::Result<()> {
             scopes: None,
             oauth_resource: None,
             tools: HashMap::new(),
+            channel: Default::default(),
         },
     );
 
@@ -4391,6 +4394,7 @@ async fn replace_mcp_servers_serializes_env_sorted() -> anyhow::Result<()> {
             scopes: None,
             oauth_resource: None,
             tools: HashMap::new(),
+            channel: Default::default(),
         },
     )]);
 
@@ -4467,6 +4471,7 @@ async fn replace_mcp_servers_serializes_env_vars() -> anyhow::Result<()> {
             scopes: None,
             oauth_resource: None,
             tools: HashMap::new(),
+            channel: Default::default(),
         },
     )]);
 
@@ -4528,6 +4533,7 @@ async fn replace_mcp_servers_serializes_sourced_env_vars() -> anyhow::Result<()>
             scopes: None,
             oauth_resource: None,
             tools: HashMap::new(),
+            channel: Default::default(),
         },
     )]);
 
@@ -4579,6 +4585,7 @@ async fn replace_mcp_servers_serializes_cwd() -> anyhow::Result<()> {
             scopes: None,
             oauth_resource: None,
             tools: HashMap::new(),
+            channel: Default::default(),
         },
     )]);
 
@@ -4633,6 +4640,7 @@ async fn replace_mcp_servers_streamable_http_serializes_bearer_token() -> anyhow
             scopes: None,
             oauth_resource: None,
             tools: HashMap::new(),
+            channel: Default::default(),
         },
     )]);
 
@@ -4703,6 +4711,7 @@ async fn replace_mcp_servers_streamable_http_serializes_custom_headers() -> anyh
             scopes: None,
             oauth_resource: None,
             tools: HashMap::new(),
+            channel: Default::default(),
         },
     )]);
     apply_blocking(
@@ -4785,6 +4794,7 @@ async fn replace_mcp_servers_streamable_http_removes_optional_sections() -> anyh
             scopes: None,
             oauth_resource: None,
             tools: HashMap::new(),
+            channel: Default::default(),
         },
     )]);
 
@@ -4820,6 +4830,7 @@ async fn replace_mcp_servers_streamable_http_removes_optional_sections() -> anyh
             scopes: None,
             oauth_resource: None,
             tools: HashMap::new(),
+            channel: Default::default(),
         },
     );
     apply_blocking(
@@ -4890,6 +4901,7 @@ async fn replace_mcp_servers_streamable_http_isolates_headers_between_servers() 
                 scopes: None,
                 oauth_resource: None,
                 tools: HashMap::new(),
+                channel: Default::default(),
             },
         ),
         (
@@ -4915,6 +4927,7 @@ async fn replace_mcp_servers_streamable_http_isolates_headers_between_servers() 
                 scopes: None,
                 oauth_resource: None,
                 tools: HashMap::new(),
+                channel: Default::default(),
             },
         ),
     ]);
@@ -5003,6 +5016,7 @@ async fn replace_mcp_servers_serializes_disabled_flag() -> anyhow::Result<()> {
             scopes: None,
             oauth_resource: None,
             tools: HashMap::new(),
+            channel: Default::default(),
         },
     )]);
 
@@ -5053,6 +5067,7 @@ async fn replace_mcp_servers_serializes_required_flag() -> anyhow::Result<()> {
             scopes: None,
             oauth_resource: None,
             tools: HashMap::new(),
+            channel: Default::default(),
         },
     )]);
 
@@ -5103,6 +5118,7 @@ async fn replace_mcp_servers_serializes_tool_filters() -> anyhow::Result<()> {
             scopes: None,
             oauth_resource: None,
             tools: HashMap::new(),
+            channel: Default::default(),
         },
     )]);
 
@@ -5157,6 +5173,7 @@ async fn replace_mcp_servers_streamable_http_serializes_oauth_resource() -> anyh
             scopes: None,
             oauth_resource: Some("https://resource.example.com".to_string()),
             tools: HashMap::new(),
+            channel: Default::default(),
         },
     )]);
 

@@ -334,6 +334,7 @@ fn insert_mcp_server(
             scopes: None,
             oauth_resource: None,
             tools: HashMap::new(),
+            channel: Default::default(),
         },
     );
     if let Err(err) = config.mcp_servers.set(servers) {

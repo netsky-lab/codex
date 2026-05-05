@@ -913,6 +913,7 @@ fn blocking_replace_mcp_servers_round_trips() {
             scopes: None,
             oauth_resource: None,
             tools: HashMap::new(),
+            channel: Default::default(),
         },
     );
 
@@ -942,6 +943,7 @@ fn blocking_replace_mcp_servers_round_trips() {
             scopes: None,
             oauth_resource: Some("https://resource.example.com".to_string()),
             tools: HashMap::new(),
+            channel: Default::default(),
         },
     );
 
@@ -1013,6 +1015,7 @@ fn blocking_replace_mcp_servers_serializes_tool_approval_overrides() {
                     approval_mode: Some(AppToolApproval::Approve),
                 },
             )]),
+            channel: Default::default(),
         },
     );
 
@@ -1072,6 +1075,7 @@ foo = { command = "cmd" }
             scopes: None,
             oauth_resource: None,
             tools: HashMap::new(),
+            channel: Default::default(),
         },
     );
 
@@ -1126,6 +1130,7 @@ foo = { command = "cmd" } # keep me
             scopes: None,
             oauth_resource: None,
             tools: HashMap::new(),
+            channel: Default::default(),
         },
     );
 
@@ -1179,6 +1184,7 @@ foo = { command = "cmd", args = ["--flag"] } # keep me
             scopes: None,
             oauth_resource: None,
             tools: HashMap::new(),
+            channel: Default::default(),
         },
     );
 
@@ -1233,6 +1239,7 @@ foo = { command = "cmd" }
             scopes: None,
             oauth_resource: None,
             tools: HashMap::new(),
+            channel: Default::default(),
         },
     );
 

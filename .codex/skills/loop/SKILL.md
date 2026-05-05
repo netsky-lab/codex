@@ -7,7 +7,7 @@ description: Use when Codex should continue work autonomously with the built-in 
 
 Codex has a built-in TUI slash command named `/loop` for autonomous continuation. Use it when the user asks you to keep working, continue a backlog, run periodic checks, or resume the next useful step without waiting for another user message.
 
-If the `loop_control` tool is available, use it to start, stop, or inspect the loop. Do not print `/loop stop` as assistant text; assistant text is transcript content, not a command channel.
+If the `loop_control` tool is available, use it to start, stop, or inspect the loop. Do not print `/loop stop` as assistant text; assistant text is transcript content, not a command channel. After using `loop_control`, run `/loop status` only if the user asks for confirmation.
 
 ## Commands
 
@@ -22,11 +22,19 @@ If the `loop_control` tool is available, use it to start, stop, or inspect the l
 
 Prefer immediate mode for active implementation backlogs where there are known remaining tasks:
 
+```json
+{"action":"start","mode":"immediate","max_iterations":20,"prompt":"continue the backlog; after each turn, inspect progress, pick the next pending task, implement it, verify it, and stop only when there is no useful next step"}
+```
+
 ```text
 /loop now --max 20 continue the backlog; after each turn, inspect progress, pick the next pending task, implement it, verify it, and stop only when there is no useful next step
 ```
 
 Prefer timed mode for monitoring, long-running services, rate-limited APIs, or tasks that need time between checks:
+
+```json
+{"action":"start","mode":"timed","interval_minutes":10,"max_iterations":6,"prompt":"check whether the test run finished; if it did, inspect failures and fix the next actionable issue"}
+```
 
 ```text
 /loop 10 --max 6 check whether the test run finished; if it did, inspect failures and fix the next actionable issue
