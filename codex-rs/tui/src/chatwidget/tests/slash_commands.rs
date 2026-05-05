@@ -71,19 +71,25 @@ fn next_user_turn_text(op_rx: &mut tokio::sync::mpsc::UnboundedReceiver<Op>) -> 
     }
 }
 
+fn assert_no_user_turn(op_rx: &mut tokio::sync::mpsc::UnboundedReceiver<Op>) {
+    while let Ok(op) = op_rx.try_recv() {
+        assert!(
+            !matches!(op, Op::UserTurn { .. }),
+            "did not expect UserTurn op: {op:?}"
+        );
+    }
+}
+
 #[tokio::test]
-async fn loop_start_submits_immediate_follow_up_when_idle() {
+async fn loop_minutes_submits_now_and_waits_after_completion() {
     let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     chat.thread_id = Some(ThreadId::new());
 
-    chat.dispatch_command_with_args(
-        SlashCommand::Loop,
-        "start --max 1 keep going".to_string(),
-        Vec::new(),
-    );
+    chat.dispatch_command_with_args(SlashCommand::Loop, "10 keep going".to_string(), Vec::new());
 
     assert_eq!(next_user_turn_text(&mut op_rx), "keep going");
     assert!(chat.loop_ui.enabled);
+    assert_eq!(chat.loop_ui.interval_minutes, Some(10));
     assert_eq!(chat.loop_ui.completed_iterations, 1);
 
     chat.handle_codex_event(Event {
@@ -91,7 +97,13 @@ async fn loop_start_submits_immediate_follow_up_when_idle() {
         msg: EventMsg::TurnComplete(turn_complete_event("turn-1", Some("done"))),
     });
 
-    assert!(!chat.loop_ui.enabled);
+    assert!(chat.loop_ui.enabled);
+    assert!(chat.loop_ui.timer_pending);
+    assert_no_user_turn(&mut op_rx);
+
+    let generation = chat.loop_ui.generation;
+    chat.on_loop_timer_fired(generation);
+    assert_eq!(next_user_turn_text(&mut op_rx), "keep going");
 }
 
 #[tokio::test]
