@@ -43,6 +43,67 @@ fn next_add_to_history_op(op_rx: &mut tokio::sync::mpsc::UnboundedReceiver<Op>) 
     }
 }
 
+fn next_user_turn_text(op_rx: &mut tokio::sync::mpsc::UnboundedReceiver<Op>) -> String {
+    loop {
+        match op_rx.try_recv() {
+            Ok(Op::UserTurn { items, .. }) => {
+                let Some(UserInput::Text { text, .. }) = items.into_iter().next() else {
+                    panic!("expected user turn text item")
+                };
+                return text;
+            }
+            Ok(_) => continue,
+            Err(TryRecvError::Empty) => panic!("expected UserTurn op but queue was empty"),
+            Err(TryRecvError::Disconnected) => {
+                panic!("expected UserTurn op but channel closed")
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn loop_start_submits_immediate_follow_up_when_idle() {
+    let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    chat.thread_id = Some(ThreadId::new());
+
+    chat.dispatch_command_with_args(
+        SlashCommand::Loop,
+        "start --max 1 keep going".to_string(),
+        Vec::new(),
+    );
+
+    assert_eq!(next_user_turn_text(&mut op_rx), "keep going");
+    assert!(chat.loop_ui.enabled);
+    assert_eq!(chat.loop_ui.completed_iterations, 1);
+
+    chat.handle_codex_event(Event {
+        id: "turn-complete".into(),
+        msg: EventMsg::TurnComplete(turn_complete_event("turn-1", Some("done"))),
+    });
+
+    assert!(!chat.loop_ui.enabled);
+}
+
+#[tokio::test]
+async fn channel_loop_command_is_handled_locally() {
+    let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    chat.thread_id = Some(ThreadId::new());
+
+    chat.on_channel_message(ChannelMessageEvent {
+        id: "telegram:1:1".to_string(),
+        schema_version: 1,
+        server: "telegram-channel".to_string(),
+        source: Some("telegram".to_string()),
+        sender: Some("1".to_string()),
+        text: "/loop once check status".to_string(),
+        attachments: Vec::new(),
+        metadata: None,
+    });
+
+    assert_eq!(next_user_turn_text(&mut op_rx), "check status");
+    assert_eq!(chat.channel_ui.submitted, 1);
+}
+
 #[tokio::test]
 async fn slash_compact_eagerly_queues_follow_up_before_turn_start() {
     let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
