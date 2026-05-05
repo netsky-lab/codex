@@ -127,6 +127,8 @@ export TELEGRAM_ALLOW_ALL_CHATS=1
 
 The plugin persists Telegram offsets at
 `$CODEX_HOME/telegram-channel-offset.json` unless `TELEGRAM_OFFSET_FILE` is set.
+Use a separate `TELEGRAM_OFFSET_FILE` for each bot token when running multiple
+Telegram channel bridges at the same time.
 Set `TELEGRAM_DEBUG=1` during bridge debugging to include update-level
 diagnostics in `telegram_status`; normal status output keeps those details out.
 Accepted inbound messages get a Telegram 👀 reaction by default; set
