@@ -167,6 +167,33 @@ async fn loop_now_submits_after_completion_without_timer() {
 }
 
 #[tokio::test]
+async fn loop_stops_when_assistant_outputs_stop_command() {
+    let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    chat.thread_id = Some(ThreadId::new());
+
+    chat.dispatch_command_with_args(
+        SlashCommand::Loop,
+        "now --max 5 keep going".to_string(),
+        Vec::new(),
+    );
+
+    assert_eq!(next_user_turn_text(&mut op_rx), "keep going");
+    assert!(chat.loop_ui.enabled);
+
+    chat.handle_codex_event(Event {
+        id: "turn-complete".into(),
+        msg: EventMsg::TurnComplete(turn_complete_event(
+            "turn-1",
+            Some("No useful next step remains.\n/loop stop"),
+        )),
+    });
+
+    assert!(!chat.loop_ui.enabled);
+    assert!(!chat.loop_ui.timer_pending);
+    assert_no_user_turn(&mut op_rx);
+}
+
+#[tokio::test]
 async fn channel_loop_command_is_handled_locally() {
     let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
     chat.thread_id = Some(ThreadId::new());
