@@ -237,6 +237,11 @@ pub(crate) enum AppEvent {
         result: Result<Vec<RateLimitSnapshot>, String>,
     },
 
+    /// Fire a delayed local loop iteration if the generation still matches.
+    LoopTimerFired {
+        generation: u64,
+    },
+
     /// Send a user-confirmed request to notify the workspace owner.
     SendAddCreditsNudgeEmail {
         credit_type: AddCreditsNudgeCreditType,
