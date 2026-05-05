@@ -7537,6 +7537,9 @@ impl ChatWidget {
             ServerNotification::ChannelMessage(notification) => {
                 self.on_channel_message(notification.event)
             }
+            ServerNotification::LoopControl(notification) => {
+                self.on_loop_control(notification.event)
+            }
             ServerNotification::Warning(notification) => self.on_warning(notification.message),
             ServerNotification::GuardianWarning(notification) => {
                 self.on_warning(notification.message)

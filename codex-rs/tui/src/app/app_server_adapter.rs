@@ -410,6 +410,7 @@ fn server_notification_thread_target(
             Some(notification.thread_id.as_str())
         }
         ServerNotification::ChannelMessage(_) => None,
+        ServerNotification::LoopControl(notification) => Some(notification.thread_id.as_str()),
         ServerNotification::ThreadRealtimeStarted(notification) => {
             Some(notification.thread_id.as_str())
         }
@@ -1082,6 +1083,7 @@ mod tests {
     use codex_app_server_protocol::GuardianWarningNotification;
     use codex_app_server_protocol::ItemCompletedNotification;
     use codex_app_server_protocol::ItemStartedNotification;
+    use codex_app_server_protocol::LoopControlNotification;
     use codex_app_server_protocol::ReasoningSummaryTextDeltaNotification;
     use codex_app_server_protocol::ServerNotification;
     use codex_app_server_protocol::Thread;
@@ -1099,6 +1101,8 @@ mod tests {
     use codex_protocol::models::MessagePhase;
     use codex_protocol::protocol::EventMsg;
     use codex_protocol::protocol::ExecCommandSource;
+    use codex_protocol::protocol::LoopControlAction;
+    use codex_protocol::protocol::LoopControlEvent;
     use codex_protocol::protocol::SessionSource;
     use codex_protocol::protocol::TurnAbortReason;
     use codex_protocol::protocol::TurnAbortedEvent;
@@ -1706,6 +1710,26 @@ mod tests {
         let notification = ServerNotification::GuardianWarning(GuardianWarningNotification {
             thread_id: thread_id.to_string(),
             message: "warning".to_string(),
+        });
+
+        let target = server_notification_thread_target(&notification);
+
+        assert_eq!(target, ServerNotificationThreadTarget::Thread(thread_id));
+    }
+
+    #[test]
+    fn loop_control_notifications_route_to_threads() {
+        let thread_id = ThreadId::new();
+        let notification = ServerNotification::LoopControl(LoopControlNotification {
+            thread_id: thread_id.to_string(),
+            event: LoopControlEvent {
+                action: LoopControlAction::Stop,
+                mode: None,
+                interval_minutes: None,
+                max_iterations: None,
+                prompt: None,
+                reason: Some("done".to_string()),
+            },
         });
 
         let target = server_notification_thread_target(&notification);

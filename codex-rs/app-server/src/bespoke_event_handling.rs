@@ -45,6 +45,7 @@ use codex_app_server_protocol::HookCompletedNotification;
 use codex_app_server_protocol::HookStartedNotification;
 use codex_app_server_protocol::ItemCompletedNotification;
 use codex_app_server_protocol::ItemStartedNotification;
+use codex_app_server_protocol::LoopControlNotification;
 use codex_app_server_protocol::McpServerElicitationAction;
 use codex_app_server_protocol::McpServerElicitationRequestParams;
 use codex_app_server_protocol::McpServerElicitationRequestResponse;
@@ -1251,6 +1252,16 @@ pub(crate) async fn apply_bespoke_event_handling(
             outgoing
                 .send_global_server_notification(ServerNotification::ChannelMessage(
                     ChannelMessageNotification { event },
+                ))
+                .await;
+        }
+        EventMsg::LoopControl(event) => {
+            outgoing
+                .send_server_notification(ServerNotification::LoopControl(
+                    LoopControlNotification {
+                        thread_id: conversation_id.to_string(),
+                        event,
+                    },
                 ))
                 .await;
         }
