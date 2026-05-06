@@ -48,6 +48,9 @@ jobs:
         with:
           toolchain: 1.93.0
 
+      - name: Install Linux build dependencies
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libcap-dev
+
       - name: Build codex
         working-directory: codex-rs
         run: cargo build -p codex-cli --release
