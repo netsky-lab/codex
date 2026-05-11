@@ -54,6 +54,7 @@ pub fn create_loop_control_tool() -> ToolSpec {
 Use this tool, not a printed slash command, to start, stop, or inspect `/loop`.
 For immediate autonomous continuation use action=start, mode=immediate, prompt=...
 For timed continuation use action=start, mode=timed, interval_minutes=N, prompt=...
+The tool returns a JSON loop_status snapshot with active, mode, completed_iterations, interval_minutes, max_iterations, timer_pending, prompt, last_reason, and summary.
 When the autonomous goal is complete or blocked, call action=stop with a short reason.
 "#
         .to_string(),

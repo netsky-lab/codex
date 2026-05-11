@@ -193,6 +193,8 @@ use codex_protocol::protocol::ListSkillsResponseEvent;
 use codex_protocol::protocol::LoopControlAction;
 use codex_protocol::protocol::LoopControlEvent;
 use codex_protocol::protocol::LoopControlMode;
+use codex_protocol::protocol::LoopStatusMode;
+use codex_protocol::protocol::LoopStatusSnapshot;
 #[cfg(test)]
 use codex_protocol::protocol::McpListToolsResponseEvent;
 use codex_protocol::protocol::McpStartupStatus;
@@ -229,6 +231,7 @@ use codex_protocol::protocol::ViewImageToolCallEvent;
 use codex_protocol::protocol::WarningEvent;
 use codex_protocol::protocol::WebSearchBeginEvent;
 use codex_protocol::protocol::WebSearchEndEvent;
+use codex_protocol::protocol::set_loop_status_snapshot;
 use codex_protocol::request_permissions::RequestPermissionsEvent;
 use codex_protocol::request_user_input::RequestUserInputEvent;
 use codex_protocol::request_user_input::RequestUserInputQuestionOption;
@@ -767,26 +770,26 @@ impl LoopUiState {
     }
 
     fn status_summary(&self) -> String {
-        let state = if self.enabled { "active" } else { "stopped" };
-        let interval = self
-            .interval_minutes
-            .map(|value| value.to_string())
-            .unwrap_or_else(|| "none".to_string());
-        let mode = if self.immediate {
-            "immediate"
-        } else if self.interval_minutes.is_some() {
-            "timed"
-        } else {
-            "once"
-        };
-        let max = self
-            .max_iterations
-            .map(|value| value.to_string())
-            .unwrap_or_else(|| "unlimited".to_string());
-        format!(
-            "Loop is {state}. mode={mode}, completed={}, interval_minutes={interval}, max={max}",
-            self.completed_iterations
-        )
+        self.snapshot(None).summary()
+    }
+
+    fn snapshot(&self, last_reason: Option<String>) -> LoopStatusSnapshot {
+        LoopStatusSnapshot {
+            active: self.enabled,
+            mode: if self.immediate {
+                LoopStatusMode::Immediate
+            } else if self.interval_minutes.is_some() {
+                LoopStatusMode::Timed
+            } else {
+                LoopStatusMode::Once
+            },
+            completed_iterations: self.completed_iterations,
+            interval_minutes: self.interval_minutes,
+            max_iterations: self.max_iterations,
+            timer_pending: self.timer_pending,
+            prompt: self.prompt.clone(),
+            last_reason,
+        }
     }
 }
 
@@ -6299,6 +6302,7 @@ impl ChatWidget {
     }
 
     fn add_loop_status_output(&mut self) {
+        self.publish_loop_status(None);
         self.add_info_message(
             self.loop_ui.status_summary(),
             Some(
@@ -6308,6 +6312,10 @@ impl ChatWidget {
         );
     }
 
+    fn publish_loop_status(&self, last_reason: Option<String>) {
+        set_loop_status_snapshot(self.loop_ui.snapshot(last_reason));
+    }
+
     #[allow(dead_code)]
     pub(crate) fn on_loop_control(&mut self, event: LoopControlEvent) {
         match event.action {
@@ -6315,12 +6323,15 @@ impl ChatWidget {
             LoopControlAction::Stop => {
                 self.stop_loop();
                 let mut message = "Loop stopped by loop_control.".to_string();
+                let mut last_reason = None;
                 if let Some(reason) = event.reason.as_deref().map(str::trim)
                     && !reason.is_empty()
                 {
                     message.push_str(" Reason: ");
                     message.push_str(reason);
+                    last_reason = Some(reason.to_string());
                 }
+                self.publish_loop_status(last_reason);
                 self.add_info_message(message, /*hint*/ None);
             }
             LoopControlAction::Start => self.start_loop_from_control(event),
@@ -6482,6 +6493,7 @@ impl ChatWidget {
         self.loop_ui.timer_pending = false;
         self.loop_ui.generation = self.loop_ui.generation.wrapping_add(1);
         self.loop_ui.prompt = prompt.trim().to_string();
+        self.publish_loop_status(None);
         self.add_loop_status_output();
         if !self.agent_turn_running && !self.has_queued_follow_up_messages() {
             self.maybe_submit_loop_follow_up();
@@ -6492,6 +6504,7 @@ impl ChatWidget {
         self.loop_ui.enabled = false;
         self.loop_ui.timer_pending = false;
         self.loop_ui.generation = self.loop_ui.generation.wrapping_add(1);
+        self.publish_loop_status(None);
     }
 
     fn stop_loop_after_max_iterations(&mut self) -> bool {
@@ -6533,6 +6546,7 @@ impl ChatWidget {
             return false;
         }
         self.loop_ui.timer_pending = true;
+        self.publish_loop_status(None);
         let generation = self.loop_ui.generation;
         let tx = self.app_event_tx.clone();
         tokio::spawn(async move {
@@ -6551,6 +6565,7 @@ impl ChatWidget {
             return;
         }
         self.loop_ui.timer_pending = false;
+        self.publish_loop_status(None);
         if !self.maybe_submit_loop_follow_up() && self.loop_ui.enabled {
             self.schedule_loop_timer();
         }
@@ -6565,6 +6580,7 @@ impl ChatWidget {
         }
 
         self.loop_ui.completed_iterations = self.loop_ui.completed_iterations.saturating_add(1);
+        self.publish_loop_status(None);
         let iteration = self.loop_ui.completed_iterations;
         let prompt = self.loop_ui.active_prompt().to_string();
         self.add_info_message(
