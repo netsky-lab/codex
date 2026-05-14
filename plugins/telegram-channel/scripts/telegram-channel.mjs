@@ -38,6 +38,7 @@ const maxTelegramMessageLength = 4096;
 let nextId = 1;
 let initialized = false;
 let polling = false;
+let shuttingDown = false;
 let pollLockStatus = "not_acquired";
 let pollLockHandle = null;
 let updateOffset = 0;
@@ -93,6 +94,10 @@ rl.on("line", async (line) => {
       logError(error.message);
     }
   }
+});
+
+rl.on("close", () => {
+  void shutdown();
 });
 
 process.on("SIGINT", () => {
@@ -507,7 +512,7 @@ async function pollLoop() {
   await ensureBotIdentity();
   updateOffset = await readOffset();
 
-  for (;;) {
+  while (!shuttingDown) {
     try {
       const result = await telegram("getUpdates", {
         offset: updateOffset,
@@ -522,6 +527,9 @@ async function pollLoop() {
         await writeOffset(updateOffset);
       }
     } catch (error) {
+      if (shuttingDown) {
+        break;
+      }
       logError(`Telegram polling failed: ${describeError(error)}`);
       await sleep(error.retryAfterMs ?? 3000);
     }
@@ -580,6 +588,11 @@ function safeJsonParse(raw) {
 }
 
 async function shutdown() {
+  if (shuttingDown) {
+    return;
+  }
+  shuttingDown = true;
+  polling = false;
   await releasePollingLock();
   process.exit(0);
 }
