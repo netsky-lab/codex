@@ -1,7 +1,7 @@
 {
-  "name": "netsky-lab",
+  "name": "mantissa-lab",
   "interface": {
-    "displayName": "Netsky Lab"
+    "displayName": "Mantissa Lab"
   },
   "plugins": [
     {
