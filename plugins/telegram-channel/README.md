@@ -11,7 +11,7 @@ codex plugin marketplace add mantissa-lab/codex-telegram-channel
 ```
 
 Then open Codex, run `/plugins`, and install **Telegram Channel** from the
-Netsky Lab marketplace. The plugin registers its MCP server from `.mcp.json`;
+Mantissa Lab marketplace. The plugin registers its MCP server from `.mcp.json`;
 runtime secrets and allowlists still come from the environment variables below.
 
 1. Create a Telegram bot with BotFather and copy the token.
