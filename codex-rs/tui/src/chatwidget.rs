@@ -170,42 +170,6 @@ use codex_protocol::protocol::LoopControlEvent;
 use codex_protocol::protocol::LoopControlMode;
 use codex_protocol::protocol::LoopStatusMode;
 use codex_protocol::protocol::LoopStatusSnapshot;
-#[cfg(test)]
-use codex_protocol::protocol::McpListToolsResponseEvent;
-use codex_protocol::protocol::McpStartupStatus;
-use codex_protocol::protocol::McpToolCallBeginEvent;
-use codex_protocol::protocol::McpToolCallEndEvent;
-#[cfg(test)]
-use codex_protocol::protocol::ModelVerification as CoreModelVerification;
-use codex_protocol::protocol::Op;
-use codex_protocol::protocol::PatchApplyBeginEvent;
-use codex_protocol::protocol::RateLimitReachedType;
-use codex_protocol::protocol::RateLimitSnapshot;
-use codex_protocol::protocol::ReviewRequest;
-use codex_protocol::protocol::ReviewTarget;
-use codex_protocol::protocol::SkillMetadata as ProtocolSkillMetadata;
-#[cfg(test)]
-use codex_protocol::protocol::StreamErrorEvent;
-use codex_protocol::protocol::TerminalInteractionEvent;
-#[cfg(test)]
-use codex_protocol::protocol::ThreadGoalStatus as ProtocolThreadGoalStatus;
-use codex_protocol::protocol::TokenUsage;
-use codex_protocol::protocol::TokenUsageInfo;
-use codex_protocol::protocol::TurnAbortReason;
-#[cfg(test)]
-use codex_protocol::protocol::TurnCompleteEvent;
-#[cfg(test)]
-use codex_protocol::protocol::TurnDiffEvent;
-#[cfg(test)]
-use codex_protocol::protocol::UndoCompletedEvent;
-#[cfg(test)]
-use codex_protocol::protocol::UndoStartedEvent;
-use codex_protocol::protocol::UserMessageEvent;
-use codex_protocol::protocol::ViewImageToolCallEvent;
-#[cfg(test)]
-use codex_protocol::protocol::WarningEvent;
-use codex_protocol::protocol::WebSearchBeginEvent;
-use codex_protocol::protocol::WebSearchEndEvent;
 use codex_protocol::protocol::set_loop_status_snapshot;
 use codex_protocol::request_permissions::RequestPermissionsEvent;
 use codex_protocol::user_input::ByteRange;

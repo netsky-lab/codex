@@ -92,10 +92,7 @@ async fn loop_minutes_submits_now_and_waits_after_completion() {
     assert_eq!(chat.loop_ui.interval_minutes, Some(10));
     assert_eq!(chat.loop_ui.completed_iterations, 1);
 
-    chat.handle_codex_event(Event {
-        id: "turn-complete".into(),
-        msg: EventMsg::TurnComplete(turn_complete_event("turn-1", Some("done"))),
-    });
+    complete_turn_with_message(&mut chat, "turn-1", Some("done"));
 
     assert!(chat.loop_ui.enabled);
     assert!(chat.loop_ui.timer_pending);
@@ -120,10 +117,7 @@ async fn loop_max_stops_after_limit() {
     assert_eq!(next_user_turn_text(&mut op_rx), "keep going");
     assert_eq!(chat.loop_ui.max_iterations, Some(1));
 
-    chat.handle_codex_event(Event {
-        id: "turn-complete".into(),
-        msg: EventMsg::TurnComplete(turn_complete_event("turn-1", Some("done"))),
-    });
+    complete_turn_with_message(&mut chat, "turn-1", Some("done"));
 
     assert!(!chat.loop_ui.enabled);
     assert!(!chat.loop_ui.timer_pending);
@@ -147,20 +141,14 @@ async fn loop_now_submits_after_completion_without_timer() {
     assert_eq!(chat.loop_ui.interval_minutes, None);
     assert_eq!(chat.loop_ui.completed_iterations, 1);
 
-    chat.handle_codex_event(Event {
-        id: "turn-complete".into(),
-        msg: EventMsg::TurnComplete(turn_complete_event("turn-1", Some("done"))),
-    });
+    complete_turn_with_message(&mut chat, "turn-1", Some("done"));
 
     assert!(chat.loop_ui.enabled);
     assert!(!chat.loop_ui.timer_pending);
     assert_eq!(next_user_turn_text(&mut op_rx), "keep going");
     assert_eq!(chat.loop_ui.completed_iterations, 2);
 
-    chat.handle_codex_event(Event {
-        id: "turn-complete".into(),
-        msg: EventMsg::TurnComplete(turn_complete_event("turn-2", Some("done"))),
-    });
+    complete_turn_with_message(&mut chat, "turn-2", Some("done"));
 
     assert!(!chat.loop_ui.enabled);
     assert_no_user_turn(&mut op_rx);
@@ -180,22 +168,16 @@ async fn loop_stops_when_model_calls_loop_control() {
     assert_eq!(next_user_turn_text(&mut op_rx), "keep going");
     assert!(chat.loop_ui.enabled);
 
-    chat.handle_codex_event(Event {
-        id: "loop-control".into(),
-        msg: EventMsg::LoopControl(LoopControlEvent {
-            action: LoopControlAction::Stop,
-            mode: None,
-            interval_minutes: None,
-            max_iterations: None,
-            prompt: None,
-            reason: Some("No useful next step remains.".to_string()),
-        }),
+    chat.on_loop_control(LoopControlEvent {
+        action: LoopControlAction::Stop,
+        mode: None,
+        interval_minutes: None,
+        max_iterations: None,
+        prompt: None,
+        reason: Some("No useful next step remains.".to_string()),
     });
 
-    chat.handle_codex_event(Event {
-        id: "turn-complete".into(),
-        msg: EventMsg::TurnComplete(turn_complete_event("turn-1", Some("done"))),
-    });
+    complete_turn_with_message(&mut chat, "turn-1", Some("done"));
 
     assert!(!chat.loop_ui.enabled);
     assert!(!chat.loop_ui.timer_pending);

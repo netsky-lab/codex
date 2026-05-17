@@ -1392,10 +1392,6 @@ pub enum EventMsg {
     /// Structured request from the model to control the local loop runner.
     LoopControl(LoopControlEvent),
 
-    UndoStarted(UndoStartedEvent),
-
-    UndoCompleted(UndoCompletedEvent),
-
     /// Notification that a model stream experienced an error or disconnect
     /// and the system is handling it (e.g., retrying with backoff).
     StreamError(StreamErrorEvent),
