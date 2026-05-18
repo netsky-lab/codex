@@ -120,7 +120,7 @@ async function handleRequest(message) {
         },
         serverInfo: {
           name: "telegram-channel",
-          version: "0.5.0",
+          version: "0.5.1",
           title: "Telegram Channel",
         },
         instructions:
@@ -1309,7 +1309,7 @@ async function writeOffset(offset) {
 function statusText() {
   const lines = [
     `polling=${polling}`,
-    "channel_delivery=logging_notification_v1",
+    "channel_delivery=custom_notification_v1",
     `debug=${telegramDebug}`,
     `poll_lock=${pollLockStatus}`,
     `poll_lock_file=${pollLockFile}`,
@@ -1517,14 +1517,7 @@ function sendNotification(method, params) {
 }
 
 function sendChannelNotification(method, params) {
-  sendNotification("notifications/message", {
-    level: "info",
-    logger: "codex-channel",
-    data: {
-      method,
-      params,
-    },
-  });
+  sendNotification(method, params);
 }
 
 function logError(message) {
