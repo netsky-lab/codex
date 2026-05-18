@@ -1,7 +1,7 @@
 {
-  "name": "netsky-lab",
+  "name": "codex-channels",
   "interface": {
-    "displayName": "Netsky Lab"
+    "displayName": "Codex Channels"
   },
   "plugins": [
     {
