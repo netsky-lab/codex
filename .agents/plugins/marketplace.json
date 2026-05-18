@@ -1,7 +1,7 @@
 {
-  "name": "mantissa-lab",
+  "name": "codex-channels",
   "interface": {
-    "displayName": "Mantissa Lab"
+    "displayName": "Codex Channels"
   },
   "plugins": [
     {
