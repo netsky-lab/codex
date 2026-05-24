@@ -216,7 +216,10 @@ impl AsyncManagedClient {
                             .and_then(|config| config.tool_timeout_sec)
                             .unwrap_or(DEFAULT_TOOL_TIMEOUT),
                         tool_filter: startup_tool_filter,
-                        channel_config: config.channel.clone(),
+                        channel_config: server
+                            .configured_config()
+                            .map(|config| config.channel.clone())
+                            .unwrap_or_default(),
                         tx_event,
                         elicitation_requests,
                         codex_apps_tools_cache_context,
