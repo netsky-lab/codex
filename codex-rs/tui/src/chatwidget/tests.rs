@@ -33,8 +33,6 @@ pub(super) use codex_app_server_protocol::AdditionalFileSystemPermissions as App
 pub(super) use codex_app_server_protocol::AdditionalNetworkPermissions as AppServerAdditionalNetworkPermissions;
 pub(super) use codex_app_server_protocol::AdditionalPermissionProfile as AppServerAdditionalPermissionProfile;
 pub(super) use codex_app_server_protocol::AppSummary;
-pub(super) use codex_protocol::protocol::ChannelMessageAttachment;
-pub(super) use codex_protocol::protocol::ChannelMessageEvent;
 pub(super) use codex_app_server_protocol::AutoReviewDecisionSource as AppServerGuardianApprovalReviewDecisionSource;
 pub(super) use codex_app_server_protocol::CodexErrorInfo;
 pub(super) use codex_app_server_protocol::CollabAgentState as AppServerCollabAgentState;
@@ -159,6 +157,8 @@ pub(super) use codex_protocol::parse_command::ParsedCommand;
 pub(super) use codex_protocol::plan_tool::PlanItemArg;
 pub(super) use codex_protocol::plan_tool::StepStatus;
 pub(super) use codex_protocol::plan_tool::UpdatePlanArgs;
+pub(super) use codex_protocol::protocol::ChannelMessageAttachment;
+pub(super) use codex_protocol::protocol::ChannelMessageEvent;
 pub(super) use codex_protocol::request_permissions::RequestPermissionProfile;
 pub(super) use codex_protocol::user_input::TextElement;
 pub(super) use codex_terminal_detection::Multiplexer;

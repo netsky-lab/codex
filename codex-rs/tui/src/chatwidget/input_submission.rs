@@ -1,11 +1,13 @@
 //! User-message and shell-prompt submission behavior for `ChatWidget`.
 
+use crate::chatwidget::user_messages::UserMessageHistoryOverride;
+use codex_protocol::models::local_image_label_text;
 use codex_protocol::protocol::ChannelMessageAttachment;
 use codex_protocol::protocol::ChannelMessageEvent;
 
 use super::*;
 
-pub(super) fn format_channel_message_for_model(ev: &ChannelMessageEvent) -> String {
+pub(crate) fn format_channel_message_for_model(ev: &ChannelMessageEvent) -> String {
     let value = serde_json::json!({
         "type": "channel_message",
         "schema_version": ev.schema_version,
@@ -21,7 +23,7 @@ pub(super) fn format_channel_message_for_model(ev: &ChannelMessageEvent) -> Stri
     format!("Inbound channel message:\n```json\n{json}\n```")
 }
 
-pub(super) fn format_channel_message_for_display(ev: &ChannelMessageEvent) -> String {
+pub(crate) fn format_channel_message_for_display(ev: &ChannelMessageEvent) -> String {
     let source = ev.source.as_deref().unwrap_or(ev.server.as_str());
     let mut text = match ev.sender.as_deref() {
         Some(sender) if !sender.is_empty() => {
@@ -52,7 +54,7 @@ pub(super) fn format_channel_message_for_display(ev: &ChannelMessageEvent) -> St
     text
 }
 
-pub(super) fn channel_message_local_images(ev: &ChannelMessageEvent) -> Vec<LocalImageAttachment> {
+pub(crate) fn channel_message_local_images(ev: &ChannelMessageEvent) -> Vec<LocalImageAttachment> {
     ev.attachments
         .iter()
         .filter(|attachment| is_channel_image_attachment(attachment))

@@ -1226,6 +1226,7 @@ async fn no_local_runtime_fails_local_stdio_but_keeps_local_http_server() {
                 oauth: None,
                 oauth_resource: None,
                 tools: HashMap::new(),
+                channel: Default::default(),
             }),
         ),
         (
@@ -1251,6 +1252,7 @@ async fn no_local_runtime_fails_local_stdio_but_keeps_local_http_server() {
                 oauth: None,
                 oauth_resource: None,
                 tools: HashMap::new(),
+                channel: Default::default(),
             }),
         ),
     ]);

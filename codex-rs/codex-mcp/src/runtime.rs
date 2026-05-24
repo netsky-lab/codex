@@ -127,6 +127,7 @@ mod tests {
             oauth: None,
             oauth_resource: None,
             tools: HashMap::new(),
+            channel: Default::default(),
         }
     }
 
