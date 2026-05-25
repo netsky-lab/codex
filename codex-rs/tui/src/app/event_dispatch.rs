@@ -787,10 +787,13 @@ impl App {
                     // provisional transcript cells have been consolidated.
                     self.insert_completed_token_activity_output_if_ready(tui);
                 }
-            }
+            },
             AppEvent::CommitCompletedTokenActivityOutput => {
                 self.insert_completed_token_activity_output_after_stream_shutdown(tui);
-            }
+            },
+            AppEvent::LoopTimerFired { generation } => {
+                self.chat_widget.on_loop_timer_fired(generation);
+            },
             AppEvent::ConnectorsLoaded { result, is_final } => {
                 self.chat_widget.on_connectors_loaded(result, is_final);
             }

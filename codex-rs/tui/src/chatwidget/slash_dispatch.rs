@@ -285,6 +285,9 @@ impl ChatWidget {
                     );
                 }
             }
+            SlashCommand::Loop => {
+                self.add_loop_status_output();
+            }
             SlashCommand::Side | SlashCommand::Btw => {
                 self.request_empty_side_conversation(cmd);
             }
@@ -838,6 +841,9 @@ impl ChatWidget {
                     self.clear_live_goal_submission();
                 }
             }
+            SlashCommand::Loop => {
+                self.handle_loop_command_args(trimmed);
+            }
             SlashCommand::Side | SlashCommand::Btw if !trimmed.is_empty() => {
                 let Some(parent_thread_id) = self.thread_id else {
                     let command = cmd.command();
@@ -1039,6 +1045,7 @@ impl ChatWidget {
             | SlashCommand::MemoryDrop
             | SlashCommand::MemoryUpdate
             | SlashCommand::Mcp
+            | SlashCommand::Loop
             | SlashCommand::Apps
             | SlashCommand::Plugins
             | SlashCommand::Rollout

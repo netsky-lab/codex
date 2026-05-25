@@ -316,6 +316,11 @@ pub(crate) enum AppEvent {
     /// Commit a settled token activity card after a stream shutdown barrier.
     CommitCompletedTokenActivityOutput,
 
+    /// Fire a delayed local loop iteration if the generation still matches.
+    LoopTimerFired {
+        generation: u64,
+    },
+
     /// Send a user-confirmed request to notify the workspace owner.
     SendAddCreditsNudgeEmail {
         credit_type: AddCreditsNudgeCreditType,
