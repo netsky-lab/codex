@@ -2,6 +2,7 @@
 
 import readline from "node:readline";
 import { openAsBlob } from "node:fs";
+import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -34,6 +35,7 @@ const offsetFile =
 const pollLockFile = process.env.TELEGRAM_POLL_LOCK_FILE ?? `${offsetFile}.lock`;
 const routeCacheFile = process.env.TELEGRAM_ROUTE_CACHE_FILE ?? `${offsetFile}.routes.json`;
 const maxTelegramMessageLength = 4096;
+const initialParentPid = process.ppid;
 
 let nextId = 1;
 let initialized = false;
@@ -107,8 +109,28 @@ process.on("SIGTERM", () => {
   void shutdown();
 });
 process.on("exit", () => {
-  void releasePollingLock();
+  releasePollingLockSync();
 });
+
+const parentWatchdog = setInterval(() => {
+  if (shuttingDown || initialParentPid <= 1) {
+    return;
+  }
+  if (process.ppid === 1) {
+    logError("Telegram channel parent process exited; shutting down bridge");
+    void shutdown();
+    return;
+  }
+  try {
+    process.kill(initialParentPid, 0);
+  } catch (error) {
+    if (error?.code === "ESRCH") {
+      logError("Telegram channel parent process is gone; shutting down bridge");
+      void shutdown();
+    }
+  }
+}, 5000);
+parentWatchdog.unref?.();
 
 async function handleRequest(message) {
   switch (message.method) {
@@ -570,6 +592,9 @@ async function lockHeldByLiveProcess() {
   }
   try {
     process.kill(pid, 0);
+    if (await isOrphanedTelegramBridge(pid)) {
+      return false;
+    }
     return true;
   } catch (error) {
     if (error?.code === "ESRCH") {
@@ -577,6 +602,32 @@ async function lockHeldByLiveProcess() {
     }
     return true;
   }
+}
+
+async function isOrphanedTelegramBridge(pid) {
+  if (pid === process.pid || process.platform !== "linux") {
+    return false;
+  }
+  try {
+    const [stat, cmdline] = await Promise.all([
+      fs.readFile(`/proc/${pid}/stat`, "utf8"),
+      fs.readFile(`/proc/${pid}/cmdline`, "utf8"),
+    ]);
+    const ppid = parseProcStatParentPid(stat);
+    return ppid === 1 && cmdline.includes("telegram-channel.mjs");
+  } catch {
+    return false;
+  }
+}
+
+function parseProcStatParentPid(stat) {
+  const end = stat.lastIndexOf(")");
+  if (end < 0) {
+    return undefined;
+  }
+  const fields = stat.slice(end + 2).trim().split(/\s+/);
+  const ppid = Number(fields[1]);
+  return Number.isSafeInteger(ppid) ? ppid : undefined;
 }
 
 function safeJsonParse(raw) {
@@ -608,6 +659,18 @@ async function releasePollingLock() {
     await fs.unlink(pollLockFile);
   } catch {
     // Best-effort cleanup; stale locks can be removed by deleting the lock file.
+  }
+}
+
+function releasePollingLockSync() {
+  if (!pollLockHandle) {
+    return;
+  }
+  pollLockHandle = null;
+  try {
+    fsSync.unlinkSync(pollLockFile);
+  } catch {
+    // Best-effort cleanup during process exit.
   }
 }
 
