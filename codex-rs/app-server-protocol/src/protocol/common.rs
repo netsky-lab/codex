@@ -1663,6 +1663,8 @@ server_notification_definitions! {
     TurnModerationMetadata => "turn/moderationMetadata" (v2::TurnModerationMetadataNotification),
     ModelSafetyBufferingUpdated => "model/safetyBuffering/updated" (v2::ModelSafetyBufferingUpdatedNotification),
     ChannelMessage => "channel/message" (v2::ChannelMessageNotification),
+    #[experimental("loop/control")]
+    LoopControl => "loop/control" (v2::LoopControlNotification),
     Warning => "warning" (v2::WarningNotification),
     GuardianWarning => "guardianWarning" (v2::GuardianWarningNotification),
     DeprecationNotice => "deprecationNotice" (v2::DeprecationNoticeNotification),

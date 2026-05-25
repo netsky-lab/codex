@@ -10,6 +10,8 @@ use std::ops::Mul;
 use std::path::Path;
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::Mutex;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use strum_macros::EnumIter;
@@ -1366,6 +1368,9 @@ pub enum EventMsg {
 
     /// Inbound message pushed by an external MCP channel server.
     ChannelMessage(ChannelMessageEvent),
+
+    /// Structured request from the model to control the local loop runner.
+    LoopControl(LoopControlEvent),
 
     /// Notification that a model stream experienced an error or disconnect
     /// and the system is handling it (e.g., retrying with backoff).
@@ -3477,6 +3482,127 @@ pub struct ChannelMessageAttachment {
     pub file_size: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<Value>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, TS, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LoopControlAction {
+    Start,
+    Stop,
+    Status,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, TS, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LoopControlMode {
+    Timed,
+    Immediate,
+    Once,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, TS, PartialEq, Eq)]
+pub struct LoopControlEvent {
+    pub action: LoopControlAction,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub mode: Option<LoopControlMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub interval_minutes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub max_iterations: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub prompt: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, TS, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename_all = "snake_case")]
+pub enum LoopStatusMode {
+    Timed,
+    Immediate,
+    Once,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, TS, PartialEq, Eq)]
+pub struct LoopStatusSnapshot {
+    pub active: bool,
+    pub mode: LoopStatusMode,
+    pub completed_iterations: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub interval_minutes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub max_iterations: Option<usize>,
+    pub timer_pending: bool,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub prompt: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub last_reason: Option<String>,
+}
+
+impl Default for LoopStatusSnapshot {
+    fn default() -> Self {
+        Self {
+            active: false,
+            mode: LoopStatusMode::Once,
+            completed_iterations: 0,
+            interval_minutes: None,
+            max_iterations: None,
+            timer_pending: false,
+            prompt: String::new(),
+            last_reason: None,
+        }
+    }
+}
+
+impl LoopStatusSnapshot {
+    pub fn summary(&self) -> String {
+        let state = if self.active { "active" } else { "stopped" };
+        let mode = match self.mode {
+            LoopStatusMode::Timed => "timed",
+            LoopStatusMode::Immediate => "immediate",
+            LoopStatusMode::Once => "once",
+        };
+        let interval = self
+            .interval_minutes
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "none".to_string());
+        let max = self
+            .max_iterations
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "unlimited".to_string());
+        format!(
+            "Loop is {state}. mode={mode}, completed={}, interval_minutes={interval}, max={max}",
+            self.completed_iterations
+        )
+    }
+}
+
+static LOOP_STATUS_SNAPSHOT: OnceLock<Mutex<LoopStatusSnapshot>> = OnceLock::new();
+
+fn loop_status_snapshot_cell() -> &'static Mutex<LoopStatusSnapshot> {
+    LOOP_STATUS_SNAPSHOT.get_or_init(|| Mutex::new(LoopStatusSnapshot::default()))
+}
+
+pub fn get_loop_status_snapshot() -> LoopStatusSnapshot {
+    loop_status_snapshot_cell()
+        .lock()
+        .map(|snapshot| snapshot.clone())
+        .unwrap_or_default()
+}
+
+pub fn set_loop_status_snapshot(snapshot: LoopStatusSnapshot) {
+    if let Ok(mut guard) = loop_status_snapshot_cell().lock() {
+        *guard = snapshot;
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, TS)]
