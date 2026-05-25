@@ -36,6 +36,7 @@ const pollLockFile = process.env.TELEGRAM_POLL_LOCK_FILE ?? `${offsetFile}.lock`
 const routeCacheFile = process.env.TELEGRAM_ROUTE_CACHE_FILE ?? `${offsetFile}.routes.json`;
 const maxTelegramMessageLength = 4096;
 const initialParentPid = process.ppid;
+const lockPayload = `${JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() })}\n`;
 
 let nextId = 1;
 let initialized = false;
@@ -131,6 +132,14 @@ const parentWatchdog = setInterval(() => {
   }
 }, 5000);
 parentWatchdog.unref?.();
+
+const lockWatchdog = setInterval(() => {
+  if (!pollLockHandle || pollLockStatus !== "acquired" || shuttingDown) {
+    return;
+  }
+  void verifyPollingLock();
+}, 5000);
+lockWatchdog.unref?.();
 
 async function handleRequest(message) {
   switch (message.method) {
@@ -562,9 +571,7 @@ async function acquirePollingLock() {
   try {
     await fs.mkdir(path.dirname(pollLockFile), { recursive: true });
     pollLockHandle = await fs.open(pollLockFile, "wx", 0o600);
-    await pollLockHandle.writeFile(
-      `${JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() })}\n`,
-    );
+    await pollLockHandle.writeFile(lockPayload);
     pollLockStatus = "acquired";
     return true;
   } catch (error) {
@@ -581,6 +588,33 @@ async function acquirePollingLock() {
     logError(`Telegram polling lock failed: ${describeError(error)}`);
     return false;
   }
+}
+
+async function verifyPollingLock() {
+  const raw = await fs.readFile(pollLockFile, "utf8").catch((error) => {
+    if (error?.code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  });
+  if (raw === lockPayload) {
+    return;
+  }
+  if (raw === null) {
+    try {
+      await fs.writeFile(pollLockFile, lockPayload, { mode: 0o600, flag: "wx" });
+      logInfo(`Telegram polling lock restored: ${pollLockFile}`);
+      return;
+    } catch (error) {
+      if (error?.code !== "EEXIST") {
+        logError(`Telegram polling lock restore failed: ${describeError(error)}`);
+      }
+    }
+  }
+
+  pollLockStatus = "lost";
+  logError(`Telegram polling lock lost to another process; shutting down bridge: ${pollLockFile}`);
+  void shutdown();
 }
 
 async function lockHeldByLiveProcess() {
