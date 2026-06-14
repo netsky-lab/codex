@@ -27,8 +27,8 @@ impl ToolExecutor<ToolInvocation> for LoopControlHandler {
         ToolName::plain(LOOP_CONTROL_TOOL_NAME)
     }
 
-    fn spec(&self) -> Option<ToolSpec> {
-        Some(create_loop_control_tool())
+    fn spec(&self) -> ToolSpec {
+        create_loop_control_tool()
     }
 
     async fn handle(

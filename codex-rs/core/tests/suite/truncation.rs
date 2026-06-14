@@ -404,6 +404,7 @@ async fn mcp_tool_call_output_exceeds_limit_truncated_for_model() -> Result<()> 
                 oauth: None,
                 oauth_resource: None,
                 tools: HashMap::new(),
+                channel: Default::default(),
             },
         );
         config
@@ -505,6 +506,7 @@ async fn mcp_image_output_preserves_image_and_no_text_summary() -> Result<()> {
                 oauth: None,
                 oauth_resource: None,
                 tools: HashMap::new(),
+                channel: Default::default(),
             },
         );
         config
@@ -794,6 +796,7 @@ async fn mcp_tool_call_output_not_truncated_with_custom_limit() -> Result<()> {
                 oauth: None,
                 oauth_resource: None,
                 tools: HashMap::new(),
+                channel: Default::default(),
             },
         );
         config
