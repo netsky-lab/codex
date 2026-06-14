@@ -118,6 +118,7 @@ async fn replace_mcp_servers_serializes_oauth_client_id() -> anyhow::Result<()> 
             }),
             oauth_resource: None,
             tools: HashMap::new(),
+            channel: Default::default(),
         },
     )]);
 

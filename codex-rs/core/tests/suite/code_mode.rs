@@ -419,6 +419,7 @@ async fn run_code_mode_turn_with_rmcp_config(
                 oauth: None,
                 oauth_resource: None,
                 tools: HashMap::new(),
+                channel: Default::default(),
             },
         );
         config
