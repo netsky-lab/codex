@@ -21,7 +21,6 @@ use codex_tools::ToolSpec;
 
 pub struct LoopControlHandler;
 
-#[async_trait::async_trait]
 impl ToolExecutor<ToolInvocation> for LoopControlHandler {
     fn tool_name(&self) -> ToolName {
         ToolName::plain(LOOP_CONTROL_TOOL_NAME)
@@ -31,42 +30,41 @@ impl ToolExecutor<ToolInvocation> for LoopControlHandler {
         create_loop_control_tool()
     }
 
-    async fn handle(
-        &self,
-        invocation: ToolInvocation,
-    ) -> Result<Box<dyn crate::tools::context::ToolOutput>, FunctionCallError> {
-        let ToolInvocation {
-            session,
-            turn,
-            payload,
-            ..
-        } = invocation;
+    fn handle(&self, invocation: ToolInvocation) -> codex_tools::ToolExecutorFuture<'_> {
+        Box::pin(async move {
+            let ToolInvocation {
+                session,
+                turn,
+                payload,
+                ..
+            } = invocation;
 
-        let arguments = match payload {
-            ToolPayload::Function { arguments } => arguments,
-            _ => {
-                return Err(FunctionCallError::RespondToModel(format!(
-                    "{LOOP_CONTROL_TOOL_NAME} handler received unsupported payload"
-                )));
+            let arguments = match payload {
+                ToolPayload::Function { arguments } => arguments,
+                _ => {
+                    return Err(FunctionCallError::RespondToModel(format!(
+                        "{LOOP_CONTROL_TOOL_NAME} handler received unsupported payload"
+                    )));
+                }
+            };
+
+            if turn.session_source.is_non_root_agent() {
+                return Err(FunctionCallError::RespondToModel(
+                    "loop_control can only be used by the root thread".to_string(),
+                ));
             }
-        };
 
-        if turn.session_source.is_non_root_agent() {
-            return Err(FunctionCallError::RespondToModel(
-                "loop_control can only be used by the root thread".to_string(),
-            ));
-        }
+            let event: LoopControlEvent = parse_arguments(&arguments)?;
+            let status = apply_loop_control_to_shared_status(&event)?;
+            session
+                .send_event(turn.as_ref(), EventMsg::LoopControl(event))
+                .await;
 
-        let event: LoopControlEvent = parse_arguments(&arguments)?;
-        let status = apply_loop_control_to_shared_status(&event)?;
-        session
-            .send_event(turn.as_ref(), EventMsg::LoopControl(event))
-            .await;
-
-        Ok(boxed_tool_output(FunctionToolOutput::from_text(
-            loop_status_output(&status),
-            Some(true),
-        )))
+            Ok(boxed_tool_output(FunctionToolOutput::from_text(
+                loop_status_output(&status),
+                Some(true),
+            )))
+        })
     }
 }
 

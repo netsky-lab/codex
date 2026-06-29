@@ -47,6 +47,7 @@ fn stdio_server(
         scopes: None,
         oauth: None,
         oauth_resource: None,
+        channel: Default::default(),
         tools: HashMap::new(),
     }
 }
@@ -82,6 +83,7 @@ fn declared_placement_preserves_local_plugin_normalization() {
             client_id: Some("client-id".to_string()),
         }),
         oauth_resource: None,
+        channel: Default::default(),
         tools: HashMap::new(),
     };
 
