@@ -36,6 +36,7 @@ fn server(url: &str) -> McpServerConfig {
         scopes: None,
         oauth: None,
         oauth_resource: None,
+        channel: Default::default(),
         tools: HashMap::from([(
             "read".to_string(),
             McpServerToolConfig {
