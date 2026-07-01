@@ -1,0 +1,148 @@
+name: channels-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag/name to publish"
+        required: true
+        default: "channels-v0.141.0"
+      create_release:
+        description: "Create or update a GitHub Release"
+        required: true
+        type: boolean
+        default: true
+  push:
+    tags:
+      - "channels-v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: channels-release-${{ github.ref_name || inputs.release_tag }}
+  cancel-in-progress: true
+
+jobs:
+  linux-x64:
+    name: Linux x86_64 release bundle
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: codex-rs
+    env:
+      TARGET: x86_64-unknown-linux-musl
+      CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+      AWS_LC_SYS_NO_JITTER_ENTROPY: "1"
+      AWS_LC_SYS_NO_JITTER_ENTROPY_x86_64_unknown_linux_musl: "1"
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@e081816240890017053eacbb1bdf337761dc5582 # 1.95.0
+        with:
+          toolchain: 1.95.0
+          targets: x86_64-unknown-linux-musl
+
+      - name: Install Zig
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.14.0
+          use-cache: false
+
+      - name: Install musl build tools
+        env:
+          TARGET: x86_64-unknown-linux-musl
+        run: bash "${GITHUB_WORKSPACE}/.github/scripts/install-musl-build-tools.sh"
+
+      - name: Configure rusty_v8 artifact overrides and verify checksums
+        uses: ./.github/actions/setup-rusty-v8
+        with:
+          target: x86_64-unknown-linux-musl
+
+      - name: Build bwrap and export digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --target "$TARGET" --release --bin bwrap
+
+          bwrap_path="target/${TARGET}/release/bwrap"
+          if [[ ! -f "$bwrap_path" ]]; then
+            echo "bwrap binary ${bwrap_path} not found" >&2
+            exit 1
+          fi
+
+          strip --strip-debug --strip-unneeded "$bwrap_path"
+          digest="$(sha256sum "$bwrap_path" | awk '{print $1}')"
+          echo "CODEX_BWRAP_SHA256=${digest}" >> "$GITHUB_ENV"
+          echo "Built bwrap ${bwrap_path} with sha256:${digest}"
+
+      - name: Build Codex
+        shell: bash
+        run: cargo build --target "$TARGET" --release --bin codex
+
+      - name: Stage release archive
+        id: stage
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          archive_name="codex-channels-${RELEASE_TAG}-${TARGET}"
+          stage_dir="${RUNNER_TEMP}/${archive_name}"
+          dist_dir="${GITHUB_WORKSPACE}/dist"
+          rm -rf "$stage_dir" "$dist_dir"
+          mkdir -p "$stage_dir/codex-resources" "$stage_dir/plugins" "$stage_dir/.agents/plugins" "$dist_dir"
+
+          cp "target/${TARGET}/release/codex" "$stage_dir/codex"
+          cp "target/${TARGET}/release/bwrap" "$stage_dir/codex-resources/bwrap"
+          cp -R "${GITHUB_WORKSPACE}/plugins/telegram-channel" "$stage_dir/plugins/telegram-channel"
+          cp "${GITHUB_WORKSPACE}/.agents/plugins/marketplace.json" "$stage_dir/.agents/plugins/marketplace.json"
+          cp "${GITHUB_WORKSPACE}/scripts/install-codex-channels-release.sh" "$stage_dir/install.sh"
+
+          strip --strip-debug --strip-unneeded "$stage_dir/codex"
+          chmod 0755 "$stage_dir/codex" "$stage_dir/codex-resources/bwrap" "$stage_dir/install.sh"
+
+          tar -C "${RUNNER_TEMP}" -czf "${dist_dir}/${archive_name}.tar.gz" "$archive_name"
+          sha256sum "${dist_dir}/${archive_name}.tar.gz" > "${dist_dir}/${archive_name}.tar.gz.sha256"
+
+          {
+            echo "archive_name=${archive_name}"
+            echo "archive_path=${dist_dir}/${archive_name}.tar.gz"
+            echo "sha256_path=${dist_dir}/${archive_name}.tar.gz.sha256"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: ${{ steps.stage.outputs.archive_name }}
+          path: |
+            ${{ steps.stage.outputs.archive_path }}
+            ${{ steps.stage.outputs.sha256_path }}
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: ${{ github.event_name == 'push' || inputs.create_release }}
+        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2.6.1
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: ${{ env.RELEASE_TAG }}
+          target_commitish: ${{ github.sha }}
+          files: |
+            ${{ steps.stage.outputs.archive_path }}
+            ${{ steps.stage.outputs.sha256_path }}
+          body: |
+            Codex Channels build from `${{ github.sha }}`.
+
+            Linux x86_64 server install:
+
+            ```bash
+            curl -L -o codex-channels.tar.gz \
+              "https://github.com/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}/${{ steps.stage.outputs.archive_name }}.tar.gz"
+            tar -xzf codex-channels.tar.gz
+            ./${{ steps.stage.outputs.archive_name }}/install.sh
+            ~/.local/bin/codex-channels-v141 --version
+            ```
