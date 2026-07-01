@@ -7,7 +7,7 @@ Local MCP channel bridge for Codex.
 Install the marketplace from this branch:
 
 ```bash
-codex plugin marketplace add netsky-lab/codex --ref channels-telegram-v0.141
+codex plugin marketplace add netsky-lab/codex --ref channels-telegram-v0.142.5
 codex plugin add telegram-channel@codex-channels
 ```
 

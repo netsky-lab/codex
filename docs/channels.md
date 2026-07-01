@@ -129,7 +129,7 @@ The Telegram bridge is packaged as a Codex plugin marketplace entry. To install
 this branch from Git:
 
 ```bash
-codex plugin marketplace add netsky-lab/codex --ref channels-telegram-v0.141
+codex plugin marketplace add netsky-lab/codex --ref channels-telegram-v0.142.5
 codex plugin add telegram-channel@codex-channels
 ```
 

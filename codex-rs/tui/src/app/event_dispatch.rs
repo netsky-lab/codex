@@ -913,9 +913,6 @@ impl App {
             AppEvent::CommitPendingUsageOutputAfterStreamShutdown => {
                 self.insert_pending_usage_output_after_stream_shutdown(tui);
             }
-            AppEvent::LoopTimerFired { generation } => {
-                self.chat_widget.on_loop_timer_fired(generation);
-            }
             AppEvent::ConnectorsLoaded { result, is_final } => {
                 self.chat_widget.on_connectors_loaded(result, is_final);
             }

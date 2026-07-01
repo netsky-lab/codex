@@ -3,7 +3,7 @@ set -euo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 prefix="${PREFIX:-$HOME/.local}"
-install_name="${CODEX_CHANNELS_INSTALL_NAME:-codex-channels-v141}"
+install_name="${CODEX_CHANNELS_INSTALL_NAME:-codex-channels-v142.5}"
 install_dir="${CODEX_CHANNELS_INSTALL_DIR:-$prefix/lib/$install_name}"
 tmp_dir="${install_dir}.tmp.$$"
 codex_home="${CODEX_HOME:-$HOME/.codex}"

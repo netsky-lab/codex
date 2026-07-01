@@ -190,7 +190,6 @@ impl ChatWidget {
         }
         // If there is a queued user message, send exactly one now to begin the next turn.
         let follow_up_started = self.maybe_send_next_queued_input();
-        let loop_follow_up_started = !follow_up_started && self.maybe_continue_loop_after_turn();
         let active_goal_continuing = self
             .current_goal_status
             .as_ref()
@@ -199,7 +198,7 @@ impl ChatWidget {
         // Queued follow-up input and active goal continuation both start the
         // next turn immediately, so notifying at that boundary would feel like
         // a false "needs attention".
-        if !follow_up_started && !loop_follow_up_started && !active_goal_continuing {
+        if !follow_up_started && !active_goal_continuing {
             self.notify(Notification::AgentTurnComplete {
                 response: notification_response,
             });

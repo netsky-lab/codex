@@ -150,7 +150,6 @@ pub fn should_persist_event_msg(ev: &EventMsg) -> bool {
         | EventMsg::ShutdownComplete
         | EventMsg::DeprecationNotice(_)
         | EventMsg::ChannelMessage(_)
-        | EventMsg::LoopControl(_)
         | EventMsg::ItemStarted(_)
         | EventMsg::HookStarted(_)
         | EventMsg::HookCompleted(_)

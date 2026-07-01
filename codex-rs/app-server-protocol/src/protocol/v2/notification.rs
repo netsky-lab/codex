@@ -1,7 +1,6 @@
 use super::TurnError;
 use crate::RequestId;
 use codex_protocol::protocol::ChannelMessageEvent as CoreChannelMessageEvent;
-use codex_protocol::protocol::LoopControlEvent as CoreLoopControlEvent;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;
@@ -22,14 +21,6 @@ pub struct DeprecationNoticeNotification {
 #[ts(export_to = "v2/")]
 pub struct ChannelMessageNotification {
     pub event: CoreChannelMessageEvent,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export_to = "v2/")]
-pub struct LoopControlNotification {
-    pub thread_id: String,
-    pub event: CoreLoopControlEvent,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]

@@ -6,7 +6,7 @@ on:
       release_tag:
         description: "Release tag/name to publish"
         required: true
-        default: "channels-v0.141.0"
+        default: "channels-v0.142.5"
       create_release:
         description: "Create or update a GitHub Release"
         required: true
@@ -144,5 +144,5 @@ jobs:
               "https://github.com/${{ github.repository }}/releases/download/${{ env.RELEASE_TAG }}/${{ steps.stage.outputs.archive_name }}.tar.gz"
             tar -xzf codex-channels.tar.gz
             ./${{ steps.stage.outputs.archive_name }}/install.sh
-            ~/.local/bin/codex-channels-v141 --version
+            ~/.local/bin/codex-channels-v142.5 --version
             ```

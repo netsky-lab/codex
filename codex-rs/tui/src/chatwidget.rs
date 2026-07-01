@@ -154,12 +154,6 @@ use codex_protocol::items::AgentMessageItem;
 use codex_protocol::models::MessagePhase;
 use codex_protocol::plan_tool::PlanItemArg as UpdatePlanItemArg;
 use codex_protocol::plan_tool::StepStatus as UpdatePlanItemStatus;
-use codex_protocol::protocol::LoopControlAction;
-use codex_protocol::protocol::LoopControlEvent;
-use codex_protocol::protocol::LoopControlMode;
-use codex_protocol::protocol::LoopStatusMode;
-use codex_protocol::protocol::LoopStatusSnapshot;
-use codex_protocol::protocol::set_loop_status_snapshot;
 use codex_protocol::request_permissions::RequestPermissionsEvent;
 use codex_protocol::user_input::ByteRange;
 use codex_protocol::user_input::TextElement;
@@ -363,7 +357,6 @@ pub(super) use self::input_submission::format_channel_message_for_model;
 mod interrupts;
 use self::interrupts::InterruptManager;
 mod keymap_picker;
-mod loop_control;
 mod mcp_startup;
 use self::mcp_startup::McpStartupStatus;
 mod pets;
@@ -442,6 +435,7 @@ use self::user_messages::ThreadComposerState;
 pub(crate) use self::user_messages::ThreadInputState;
 pub(crate) use self::user_messages::UserMessage;
 use self::user_messages::UserMessageDisplay;
+#[cfg(test)]
 use self::user_messages::UserMessageHistoryOverride;
 use self::user_messages::UserMessageHistoryRecord;
 use self::user_messages::app_server_text_elements;
@@ -652,7 +646,6 @@ pub(crate) struct ChatWidget {
     /// The nudge is only a discovery aid, so once a user dismisses it or enters Plan mode we keep it
     /// hidden for that thread instead of resurfacing it on every matching draft.
     dismissed_plan_mode_nudge_scopes: HashSet<PlanModeNudgeScope>,
-    loop_ui: LoopUiState,
     thread_name: Option<String>,
     thread_rename_block_message: Option<String>,
     active_side_conversation: bool,
@@ -824,53 +817,6 @@ enum PlanModeNudgeScope {
     NewThread,
     /// Drafts associated with one configured thread.
     Thread(ThreadId),
-}
-
-#[derive(Default)]
-struct LoopUiState {
-    enabled: bool,
-    completed_iterations: usize,
-    interval_minutes: Option<u64>,
-    immediate: bool,
-    max_iterations: Option<usize>,
-    timer_pending: bool,
-    generation: u64,
-    prompt: String,
-}
-
-impl LoopUiState {
-    const DEFAULT_PROMPT: &'static str = "Continue working autonomously. Inspect the current project state, choose the next useful step toward the active goal, make progress, verify what you changed when possible, and report what you did. If there is no useful next step, explain that and wait for the user.";
-
-    fn active_prompt(&self) -> &str {
-        if self.prompt.trim().is_empty() {
-            Self::DEFAULT_PROMPT
-        } else {
-            self.prompt.as_str()
-        }
-    }
-
-    fn status_summary(&self) -> String {
-        self.snapshot(None).summary()
-    }
-
-    fn snapshot(&self, last_reason: Option<String>) -> LoopStatusSnapshot {
-        LoopStatusSnapshot {
-            active: self.enabled,
-            mode: if self.immediate {
-                LoopStatusMode::Immediate
-            } else if self.interval_minutes.is_some() {
-                LoopStatusMode::Timed
-            } else {
-                LoopStatusMode::Once
-            },
-            completed_iterations: self.completed_iterations,
-            interval_minutes: self.interval_minutes,
-            max_iterations: self.max_iterations,
-            timer_pending: self.timer_pending,
-            prompt: self.prompt.clone(),
-            last_reason,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
