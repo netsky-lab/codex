@@ -129,12 +129,13 @@ The Telegram bridge is packaged as a Codex plugin marketplace entry. To install
 this branch from Git:
 
 ```bash
-codex plugin marketplace add netsky-lab/codex --ref channels-telegram
+codex plugin marketplace add netsky-lab/codex --ref channels-telegram-v0.141
+codex plugin add telegram-channel@codex-channels
 ```
 
-Then run `/plugins` and install **Telegram Channel**. The plugin contributes the
-MCP server definition; Telegram tokens and allowlists are still provided through
-the environment variables listed below.
+This installs **Telegram Channel** from the Codex Channels marketplace. The
+plugin contributes the MCP server definition; Telegram tokens and allowlists are
+still provided through the environment variables listed below.
 
 The plugin requires:
 
