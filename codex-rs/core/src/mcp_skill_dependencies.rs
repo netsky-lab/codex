@@ -398,6 +398,7 @@ fn mcp_dependency_to_server_config(
             scopes: None,
             oauth: None,
             oauth_resource: None,
+            channel: Default::default(),
             tools: HashMap::new(),
         });
     }
@@ -430,6 +431,7 @@ fn mcp_dependency_to_server_config(
             scopes: None,
             oauth: None,
             oauth_resource: None,
+            channel: Default::default(),
             tools: HashMap::new(),
         });
     }

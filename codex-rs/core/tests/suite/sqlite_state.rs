@@ -693,6 +693,7 @@ async fn mcp_call_marks_thread_memory_mode_polluted_when_configured() -> Result<
                 scopes: None,
                 oauth: None,
                 oauth_resource: None,
+                channel: Default::default(),
                 tools: HashMap::new(),
             },
         );

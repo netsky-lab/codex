@@ -1023,6 +1023,7 @@ fn blocking_replace_mcp_servers_round_trips() {
             scopes: None,
             oauth: None,
             oauth_resource: None,
+            channel: Default::default(),
             tools: HashMap::new(),
         },
     );
@@ -1057,6 +1058,7 @@ fn blocking_replace_mcp_servers_round_trips() {
                 client_id: Some("eci-prd-pub-codex-123".to_string()),
             }),
             oauth_resource: Some("https://resource.example.com".to_string()),
+            channel: Default::default(),
             tools: HashMap::new(),
         },
     );
@@ -1128,6 +1130,7 @@ fn blocking_replace_mcp_servers_serializes_tool_approval_overrides() {
             scopes: None,
             oauth: None,
             oauth_resource: None,
+            channel: Default::default(),
             tools: HashMap::from([(
                 "search".to_string(),
                 McpServerToolConfig {
@@ -1190,6 +1193,7 @@ foo = { command = "cmd" }
             scopes: None,
             oauth: None,
             oauth_resource: None,
+            channel: Default::default(),
             tools: HashMap::new(),
         },
     );
@@ -1242,6 +1246,7 @@ foo = { command = "cmd" } # keep me
             scopes: None,
             oauth: None,
             oauth_resource: None,
+            channel: Default::default(),
             tools: HashMap::new(),
         },
     );
@@ -1293,6 +1298,7 @@ foo = { command = "cmd", args = ["--flag"] } # keep me
             scopes: None,
             oauth: None,
             oauth_resource: None,
+            channel: Default::default(),
             tools: HashMap::new(),
         },
     );
@@ -1345,6 +1351,7 @@ foo = { command = "cmd" }
             scopes: None,
             oauth: None,
             oauth_resource: None,
+            channel: Default::default(),
             tools: HashMap::new(),
         },
     );

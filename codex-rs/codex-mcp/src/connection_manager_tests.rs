@@ -3146,6 +3146,7 @@ async fn no_local_runtime_fails_local_stdio_but_keeps_local_http_server() {
                 oauth: None,
                 oauth_resource: None,
                 tools: HashMap::new(),
+                channel: Default::default(),
             }),
         ),
         (
@@ -3173,6 +3174,7 @@ async fn no_local_runtime_fails_local_stdio_but_keeps_local_http_server() {
                 oauth: None,
                 oauth_resource: None,
                 tools: HashMap::new(),
+                channel: Default::default(),
             }),
         ),
     ]);
@@ -3288,6 +3290,7 @@ fn mcp_init_error_display_prompts_for_github_pat() {
         oauth: None,
         oauth_resource: None,
         tools: HashMap::new(),
+        channel: Default::default(),
     };
     let err: StartupOutcomeError = anyhow::anyhow!("OAuth is unsupported").into();
 
@@ -3380,6 +3383,7 @@ fn mcp_init_error_display_reports_generic_errors() {
         oauth: None,
         oauth_resource: None,
         tools: HashMap::new(),
+        channel: Default::default(),
     };
     let err: StartupOutcomeError = anyhow::anyhow!("boom").into();
 
@@ -3432,6 +3436,7 @@ fn reusable_server_config(url: &str) -> McpServerConfig {
         oauth: None,
         oauth_resource: None,
         tools: HashMap::new(),
+        channel: Default::default(),
     }
 }
 

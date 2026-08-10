@@ -967,6 +967,7 @@ async fn load_plugins_loads_default_skills_and_mcp_servers() {
                         client_id: Some("client-id".to_string()),
                     }),
                     oauth_resource: None,
+                    channel: Default::default(),
                     tools: HashMap::new(),
                 },
             )]),
@@ -1059,6 +1060,7 @@ enabled = true
                 scopes: None,
                 oauth: None,
                 oauth_resource: None,
+                channel: Default::default(),
                 tools: HashMap::new(),
             },
         )])
@@ -2097,6 +2099,7 @@ async fn load_plugins_uses_manifest_configured_component_paths() {
                     scopes: None,
                     oauth: None,
                     oauth_resource: None,
+                    channel: Default::default(),
                     tools: HashMap::new(),
                 },
             )])
@@ -2426,6 +2429,7 @@ async fn load_plugins_ignores_manifest_component_paths_without_dot_slash() {
                 scopes: None,
                 oauth: None,
                 oauth_resource: None,
+                channel: Default::default(),
                 tools: HashMap::new(),
             },
         )])
@@ -2680,6 +2684,7 @@ fn capability_index_filters_inactive_and_zero_capability_plugins() {
         scopes: None,
         oauth: None,
         oauth_resource: None,
+        channel: Default::default(),
         tools: HashMap::new(),
     };
     let plugin = |config_name: &str, dir_name: &str, manifest_name: &str| LoadedPlugin {

@@ -95,7 +95,7 @@ impl ChatWidget {
         .1
     }
 
-    fn submit_user_message_with_history_and_shell_escape_policy(
+    pub(super) fn submit_user_message_with_history_and_shell_escape_policy(
         &mut self,
         user_message: UserMessage,
         history_record: UserMessageHistoryRecord,
@@ -355,6 +355,19 @@ impl ChatWidget {
             text_elements,
             mention_bindings,
         };
+        let submitted_user_message_display = render_in_history.then(|| {
+            let local_image_paths = submitted_message
+                .local_images
+                .iter()
+                .map(|image| image.path.clone())
+                .collect();
+            Self::user_message_display_from_parts(
+                submitted_message.text.clone(),
+                submitted_message.text_elements.clone(),
+                local_image_paths,
+                submitted_message.remote_image_urls.clone(),
+            )
+        });
 
         // App-event submissions are handled serially, and turn/start can wait on remote work.
         // Queue the optimistic prompt first so the user's input is visible while that happens.
@@ -366,6 +379,11 @@ impl ChatWidget {
                 submitted_message.clone(),
                 &history_record,
             ));
+            if matches!(history_record, UserMessageHistoryRecord::Override(_))
+                && let Some(submitted_display) = submitted_user_message_display.clone()
+            {
+                self.last_rendered_user_message_display = Some(submitted_display);
+            }
         }
 
         if !self.submit_op(op.clone()) {
@@ -417,6 +435,11 @@ impl ChatWidget {
                     submitted_message,
                     &history_record,
                 ));
+                if matches!(history_record, UserMessageHistoryRecord::Override(_))
+                    && let Some(submitted_display) = submitted_user_message_display
+                {
+                    self.last_rendered_user_message_display = Some(submitted_display);
+                }
             }
         }
 

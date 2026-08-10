@@ -18,6 +18,8 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 use std::time::Instant;
 
+use crate::channel_notifications::channel_capabilities;
+use crate::channel_notifications::make_custom_notification_sender;
 use crate::codex_apps::normalize_codex_apps_callable_name;
 use crate::codex_apps::normalize_codex_apps_callable_namespace;
 use crate::codex_apps::normalize_codex_apps_tool_title;
@@ -41,6 +43,7 @@ use codex_api::SharedAuthProvider;
 use codex_async_utils::CancelErr;
 use codex_async_utils::OrCancelExt;
 use codex_config::McpServerAuth;
+use codex_config::McpServerChannelConfig;
 use codex_config::McpServerConfig;
 use codex_config::McpServerTransportConfig;
 use codex_config::types::AuthKeyringBackendKind;
@@ -354,6 +357,7 @@ impl ManagedClientStartup {
                     StartServerTaskParams {
                         is_codex_apps_mcp_server,
                         startup_timeout: Some(startup_timeout),
+                        channel_config: server.config().channel.clone(),
                         tx_event,
                         elicitation_requests,
                         codex_apps_tools_cache_context,
@@ -866,6 +870,7 @@ async fn start_server_task(
     let StartServerTaskParams {
         is_codex_apps_mcp_server,
         startup_timeout,
+        channel_config,
         tx_event,
         elicitation_requests,
         codex_apps_tools_cache_context,
@@ -875,12 +880,22 @@ async fn start_server_task(
         client_mcp_extensions,
         catalog_item_limit,
     } = params;
-    let params =
-        mcp_initialize_request_params(client_elicitation_capability, client_mcp_extensions);
-    let send_elicitation = elicitation_requests.make_sender(server_name.clone(), tx_event);
+    let params = mcp_initialize_request_params(
+        client_elicitation_capability,
+        client_mcp_extensions,
+        &channel_config,
+    );
+    let send_elicitation = elicitation_requests.make_sender(server_name.clone(), tx_event.clone());
+    let send_custom_notification =
+        make_custom_notification_sender(server_name.clone(), channel_config, tx_event);
 
     let initialize_result = client
-        .initialize(params, startup_timeout, send_elicitation)
+        .initialize_with_custom_notifications(
+            params,
+            startup_timeout,
+            send_elicitation,
+            send_custom_notification,
+        )
         .await
         .map_err(StartupOutcomeError::from)?;
 
@@ -959,6 +974,7 @@ async fn start_server_task(
 fn mcp_initialize_request_params(
     client_elicitation_capability: ElicitationCapability,
     client_mcp_extensions: ClientMcpExtensions,
+    channel_config: &McpServerChannelConfig,
 ) -> InitializeRequestParams {
     let mut capabilities = ClientCapabilities::default();
     capabilities.elicitation = Some(client_elicitation_capability);
@@ -974,6 +990,7 @@ fn mcp_initialize_request_params(
     if !extensions.is_empty() {
         capabilities.extensions = Some(extensions);
     }
+    capabilities.experimental = channel_capabilities(channel_config);
     InitializeRequestParams::new(
         capabilities,
         Implementation::new("codex-mcp-client", env!("CARGO_PKG_VERSION")).with_title("Codex"),
@@ -1004,6 +1021,7 @@ fn mcp_server_info_from_implementation(
 struct StartServerTaskParams {
     is_codex_apps_mcp_server: bool,
     startup_timeout: Option<Duration>, // TODO: cancel_token should handle this.
+    channel_config: McpServerChannelConfig,
     tx_event: Option<Sender<Event>>,
     elicitation_requests: ElicitationRequestManager,
     codex_apps_tools_cache_context: Option<ConnectorRuntimeContext<ToolInfo>>,
@@ -1190,8 +1208,10 @@ mod tests {
         let unsupported = mcp_initialize_request_params(
             ElicitationCapability::default(),
             ClientMcpExtensions::default(),
+            &McpServerChannelConfig::default(),
         );
         assert_eq!(unsupported.capabilities.extensions, None);
+        assert_eq!(unsupported.capabilities.experimental, None);
 
         let app_ui = serde_json::json!({
             "mimeTypes": ["text/html;profile=mcp-app"],
@@ -1203,6 +1223,10 @@ mod tests {
                 (OPENAI_FORM_EXTENSION_ID.to_string(), serde_json::json!({})),
                 (MCP_APP_UI_EXTENSION_ID.to_string(), app_ui.clone()),
             ]),
+            &McpServerChannelConfig {
+                enabled: true,
+                ..Default::default()
+            },
         );
         assert_eq!(
             supported.capabilities.extensions,
@@ -1213,6 +1237,15 @@ mod tests {
                     app_ui.as_object().cloned().expect("app UI settings"),
                 ),
             ]))
+        );
+        assert!(
+            supported
+                .capabilities
+                .experimental
+                .as_ref()
+                .is_some_and(|capabilities| capabilities.contains_key(
+                    crate::channel_notifications::MCP_CHANNEL_NOTIFICATIONS_CAPABILITY
+                ))
         );
     }
 

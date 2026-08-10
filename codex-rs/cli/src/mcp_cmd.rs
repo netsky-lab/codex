@@ -386,6 +386,7 @@ async fn run_add(config_overrides: &CliConfigOverrides, add_args: AddArgs) -> Re
                 client_id: Some(client_id),
             }),
         oauth_resource: oauth_resource.clone(),
+        channel: Default::default(),
         tools: HashMap::new(),
     };
 

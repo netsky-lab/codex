@@ -44,6 +44,7 @@ fn server(url: &str) -> McpServerConfig {
                 approval_mode: Some(AppToolApproval::Approve),
             },
         )]),
+        channel: Default::default(),
     }
 }
 

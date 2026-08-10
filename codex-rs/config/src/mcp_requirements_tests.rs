@@ -28,6 +28,7 @@ fn stdio_server(command: &str, args: &[&str]) -> McpServerConfig {
         oauth: None,
         oauth_resource: None,
         tools: HashMap::new(),
+        channel: Default::default(),
     }
 }
 

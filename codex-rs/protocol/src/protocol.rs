@@ -1424,6 +1424,9 @@ pub enum EventMsg {
     /// deprecated and should be phased out.
     DeprecationNotice(DeprecationNoticeEvent),
 
+    /// Inbound message pushed by an external MCP channel server.
+    ChannelMessage(ChannelMessageEvent),
+
     /// Notification that a model stream experienced an error or disconnect
     /// and the system is handling it (e.g., retrying with backoff).
     StreamError(StreamErrorEvent),
@@ -3664,6 +3667,37 @@ pub struct DeprecationNoticeEvent {
     /// Optional extra guidance, such as migration steps or rationale.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelMessageEvent {
+    pub id: String,
+    pub schema_version: u32,
+    pub server: String,
+    pub source: Option<String>,
+    pub sender: Option<String>,
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<ChannelMessageAttachment>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<Value>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelMessageAttachment {
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<std::path::PathBuf>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mime_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_size: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<Value>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, TS)]
@@ -6348,5 +6382,48 @@ mod tests {
                 .expect("new_or_append should return info");
 
         assert_eq!(info.model_context_window, Some(258_400));
+    }
+
+    #[test]
+    fn channel_message_event_serializes_routing_and_attachments() -> Result<()> {
+        let event = EventMsg::ChannelMessage(ChannelMessageEvent {
+            id: "telegram:123:456".to_string(),
+            schema_version: 1,
+            server: "telegram-channel".to_string(),
+            source: Some("telegram".to_string()),
+            sender: Some("42".to_string()),
+            text: "photo".to_string(),
+            attachments: vec![ChannelMessageAttachment {
+                kind: "photo".to_string(),
+                path: Some(PathBuf::from("/tmp/photo.jpg")),
+                mime_type: Some("image/jpeg".to_string()),
+                file_name: Some("photo.jpg".to_string()),
+                file_size: Some(123),
+                metadata: None,
+            }],
+            metadata: Some(json!({"chat_id": "123"})),
+        });
+
+        assert_eq!(
+            serde_json::to_value(event)?,
+            json!({
+                "type": "channel_message",
+                "id": "telegram:123:456",
+                "schemaVersion": 1,
+                "server": "telegram-channel",
+                "source": "telegram",
+                "sender": "42",
+                "text": "photo",
+                "attachments": [{
+                    "kind": "photo",
+                    "path": "/tmp/photo.jpg",
+                    "mimeType": "image/jpeg",
+                    "fileName": "photo.jpg",
+                    "fileSize": 123
+                }],
+                "metadata": {"chat_id": "123"}
+            })
+        );
+        Ok(())
     }
 }

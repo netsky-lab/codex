@@ -128,6 +128,7 @@ async fn local_mcp_startup_and_refresh_use_configured_http_client() -> Result<()
                     scopes: None,
                     oauth: None,
                     oauth_resource: None,
+                    channel: Default::default(),
                     tools: HashMap::new(),
                 },
             );

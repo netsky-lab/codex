@@ -332,6 +332,10 @@ pub type SendElicitation = Box<
     dyn Fn(RequestId, Elicitation) -> BoxFuture<'static, Result<ElicitationResponse>> + Send + Sync,
 >;
 
+/// Interface for forwarding custom MCP server notifications to a domain-specific consumer.
+pub type SendCustomNotification =
+    Box<dyn Fn(String, Option<Value>) -> BoxFuture<'static, ()> + Send + Sync>;
+
 pub struct ToolWithConnectorId {
     pub tool: Tool,
     pub connector_id: Option<String>,
@@ -563,9 +567,28 @@ impl RmcpClient {
         timeout: Option<Duration>,
         send_elicitation: SendElicitation,
     ) -> Result<ServerPeerInfo> {
+        self.initialize_with_custom_notifications(
+            params,
+            timeout,
+            send_elicitation,
+            Box::new(|_, _| async {}.boxed()),
+        )
+        .await
+    }
+
+    /// Performs the MCP initialization handshake and forwards custom server notifications.
+    #[instrument(level = "trace", skip_all)]
+    pub async fn initialize_with_custom_notifications(
+        &self,
+        params: InitializeRequestParams,
+        timeout: Option<Duration>,
+        send_elicitation: SendElicitation,
+        send_custom_notification: SendCustomNotification,
+    ) -> Result<ServerPeerInfo> {
         let client_service = ElicitationClientService::new(
             params.clone(),
             send_elicitation,
+            send_custom_notification,
             self.elicitation_pause_state.clone(),
         );
         let pending_transport = {

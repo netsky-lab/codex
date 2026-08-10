@@ -2,6 +2,7 @@ use super::TurnError;
 use crate::JsonSchema;
 use crate::RequestId;
 use crate::TS;
+use codex_protocol::protocol::ChannelMessageEvent as CoreChannelMessageEvent;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -13,6 +14,13 @@ pub struct DeprecationNoticeNotification {
     pub summary: String,
     /// Optional extra guidance, such as migration steps or rationale.
     pub details: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "v2/")]
+pub struct ChannelMessageNotification {
+    pub event: CoreChannelMessageEvent,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]

@@ -206,6 +206,7 @@ fn insert_rmcp_test_server(config: &mut Config, command: String, approval_mode: 
             scopes: None,
             oauth: None,
             oauth_resource: None,
+            channel: Default::default(),
             tools: HashMap::new(),
         },
     );

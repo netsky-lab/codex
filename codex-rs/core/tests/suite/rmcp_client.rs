@@ -343,6 +343,7 @@ fn insert_mcp_server(
             scopes: None,
             oauth: None,
             oauth_resource: None,
+            channel: Default::default(),
             tools: HashMap::new(),
         },
     );

@@ -64,6 +64,60 @@ pub struct McpServerToolConfig {
     pub approval_mode: Option<AppToolApproval>,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum McpServerChannelMode {
+    Ask,
+    #[default]
+    Queue,
+    Immediate,
+    Context,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
+#[schemars(deny_unknown_fields)]
+pub struct McpServerChannelConfig {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub enabled: bool,
+    #[serde(default, skip_serializing_if = "is_default_channel_mode")]
+    pub mode: McpServerChannelMode,
+    #[serde(default = "default_channel_queue_capacity")]
+    pub queue_capacity: usize,
+    #[serde(default = "default_channel_dedupe_capacity")]
+    pub dedupe_capacity: usize,
+    #[serde(default = "default_channel_rate_limit_per_minute")]
+    pub rate_limit_per_minute: u32,
+}
+
+impl Default for McpServerChannelConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            mode: McpServerChannelMode::default(),
+            queue_capacity: default_channel_queue_capacity(),
+            dedupe_capacity: default_channel_dedupe_capacity(),
+            rate_limit_per_minute: default_channel_rate_limit_per_minute(),
+        }
+    }
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn is_default_channel_mode(mode: &McpServerChannelMode) -> bool {
+    *mode == McpServerChannelMode::default()
+}
+
+const fn default_channel_queue_capacity() -> usize {
+    50
+}
+
+const fn default_channel_dedupe_capacity() -> usize {
+    200
+}
+
+const fn default_channel_rate_limit_per_minute() -> u32 {
+    30
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
 #[serde(untagged, deny_unknown_fields)]
 pub enum McpServerEnvVar {
@@ -229,6 +283,9 @@ pub struct McpServerConfig {
     /// Per-tool approval settings keyed by tool name.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub tools: HashMap<String, McpServerToolConfig>,
+
+    #[serde(default, skip_serializing_if = "is_default_channel_config")]
+    pub channel: McpServerChannelConfig,
 }
 
 impl McpServerConfig {
@@ -327,6 +384,8 @@ pub struct RawMcpServerConfig {
     pub _name: Option<String>,
     #[serde(default)]
     pub tools: Option<HashMap<String, McpServerToolConfig>>,
+    #[serde(default)]
+    pub channel: Option<McpServerChannelConfig>,
 }
 
 impl TryFrom<RawMcpServerConfig> for McpServerConfig {
@@ -361,6 +420,7 @@ impl TryFrom<RawMcpServerConfig> for McpServerConfig {
             oauth_resource,
             _name: _,
             tools,
+            channel,
         } = raw;
 
         let startup_timeout_sec = match (startup_timeout_sec, startup_timeout_ms) {
@@ -439,6 +499,7 @@ impl TryFrom<RawMcpServerConfig> for McpServerConfig {
             oauth,
             oauth_resource,
             tools: tools.unwrap_or_default(),
+            channel: channel.unwrap_or_default(),
         })
     }
 }
@@ -456,6 +517,10 @@ impl<'de> Deserialize<'de> for McpServerConfig {
 
 const fn default_enabled() -> bool {
     true
+}
+
+fn is_default_channel_config(config: &McpServerChannelConfig) -> bool {
+    config == &McpServerChannelConfig::default()
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]

@@ -189,6 +189,7 @@ async fn reads_declared_config_only_through_executor_file_system() {
                     scopes: None,
                     oauth: None,
                     oauth_resource: None,
+                    channel: Default::default(),
                     tools: HashMap::new(),
                 },
             ),
@@ -216,6 +217,7 @@ async fn reads_declared_config_only_through_executor_file_system() {
                     scopes: None,
                     oauth: None,
                     oauth_resource: None,
+                    channel: Default::default(),
                     tools: HashMap::new(),
                 },
             ),
@@ -274,6 +276,7 @@ async fn reads_manifest_object_config_without_executor_file_system_access() {
                 scopes: None,
                 oauth: None,
                 oauth_resource: None,
+                channel: Default::default(),
                 tools: HashMap::new(),
             },
         )]

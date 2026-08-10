@@ -1526,6 +1526,45 @@
         }
       ]
     },
+    "McpServerChannelConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "dedupe_capacity": {
+          "default": 200,
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "mode": {
+          "$ref": "#/definitions/McpServerChannelMode"
+        },
+        "queue_capacity": {
+          "default": 50,
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "rate_limit_per_minute": {
+          "default": 30,
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "McpServerChannelMode": {
+      "enum": [
+        "ask",
+        "queue",
+        "immediate",
+        "context"
+      ],
+      "type": "string"
+    },
     "McpServerEnvVar": {
       "anyOf": [
         {
@@ -2615,6 +2654,14 @@
         },
         "bearer_token_env_var": {
           "type": "string"
+        },
+        "channel": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/McpServerChannelConfig"
+            }
+          ],
+          "default": null
         },
         "command": {
           "type": "string"

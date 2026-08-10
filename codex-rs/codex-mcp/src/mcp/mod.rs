@@ -579,6 +579,7 @@ fn mcp_server_config_for_url(
         oauth: None,
         oauth_resource: None,
         tools: HashMap::new(),
+        channel: Default::default(),
     }
 }
 
