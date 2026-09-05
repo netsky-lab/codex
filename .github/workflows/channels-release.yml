@@ -38,6 +38,7 @@ jobs:
       TARGET: x86_64-unknown-linux-musl
       CARGO_NET_GIT_FETCH_WITH_CLI: "true"
       CARGO_BUILD_JOBS: "2"
+      CODEX_REPO_ROOT: ${{ github.workspace }}
       AWS_LC_SYS_NO_JITTER_ENTROPY: "1"
       AWS_LC_SYS_NO_JITTER_ENTROPY_x86_64_unknown_linux_musl: "1"
 
@@ -82,6 +83,9 @@ jobs:
         uses: ./.github/actions/setup-rusty-v8
         with:
           target: x86_64-unknown-linux-musl
+
+      - name: Validate package builder
+        run: python3 "${GITHUB_WORKSPACE}/scripts/build_codex_package.py" --help > /dev/null
 
       - name: Build portable binaries
         shell: bash

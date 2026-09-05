@@ -38,22 +38,21 @@ publishing a GitHub Release requires an explicit manual dispatch option.
 From the repository root:
 
 ```sh
-cd codex-rs
-cargo build --locked --bin codex
-./target/debug/codex --version
+just assemble-codex-package --cargo-profile dev --package-dir ./dist/codex-channels-dev
+./dist/codex-channels-dev/bin/codex --version
 ```
 
-For an optimized build, use `cargo build --locked --release --bin codex` and
-`target/release/codex`. Run the resulting executable directly to keep any
-installed `codex` command intact. Node.js must be available on PATH for the
-Telegram plugin.
+Use `--cargo-profile release` for an optimized build. The canonical package
+builder fetches the matching Codex-built V8 artifacts and includes the code-mode
+host and runtime resources. Keep the package directory intact and run its
+executable directly. Node.js must be available on PATH for the Telegram plugin.
 
 Register the local marketplace with the newly built executable, from the
 repository root:
 
 ```sh
-./codex-rs/target/debug/codex plugin marketplace add "$PWD"
-./codex-rs/target/debug/codex plugin add telegram-channel@codex-channels
+./dist/codex-channels-dev/bin/codex plugin marketplace add "$PWD"
+./dist/codex-channels-dev/bin/codex plugin add telegram-channel@codex-channels
 ```
 
 Export `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_CHAT_IDS` (or
@@ -87,6 +86,10 @@ start work in a different task. A loop prompt is limited to 1024 UTF-8 bytes.
 The model can use `loop_control` to operate the attached local runner. It is
 restricted to the root agent. `/loop status` shows the authoritative local
 state.
+
+The built-in `loop` skill is installed automatically with this binary, independently
+of the Telegram plugin. Codex can discover it for loop requests, or users can
+invoke it explicitly with `$loop` to learn or operate the local runner.
 
 ## Channel compatibility
 
