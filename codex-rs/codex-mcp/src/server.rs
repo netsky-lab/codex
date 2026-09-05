@@ -7,6 +7,7 @@ use crate::runtime::McpRuntimeContext;
 use codex_api::SharedAuthProvider;
 use codex_config::AppToolApproval;
 use codex_config::McpServerAuth;
+use codex_config::McpServerChannelConfig;
 use codex_config::McpServerConfig;
 use codex_config::McpServerTransportConfig;
 use codex_config::types::AuthKeyringBackendKind;
@@ -96,6 +97,8 @@ pub(crate) fn has_explicit_http_authorization(config: &McpServerConfig) -> bool 
 #[derive(Clone)]
 pub(crate) struct McpServerConnectionIdentity {
     auth: McpServerAuth,
+    // The callback and advertised capability capture this policy at startup.
+    channel: McpServerChannelConfig,
     transport: McpServerTransportConfig,
     environment_id: String,
     host_plugin_root: Option<PathUri>,
@@ -214,6 +217,7 @@ impl McpServerConnectionIdentity {
 
         Self {
             auth: config.auth.clone(),
+            channel: config.channel.clone(),
             transport: config.transport.clone(),
             environment_id: config.environment_id.clone(),
             host_plugin_root: host_plugin_root.cloned(),
@@ -250,6 +254,7 @@ impl McpServerConnectionIdentity {
             (Some(_), None) | (None, Some(_)) => false,
         };
         self.auth == other.auth
+            && self.channel == other.channel
             && self.transport == other.transport
             && self.environment_id == other.environment_id
             && self.host_plugin_root == other.host_plugin_root

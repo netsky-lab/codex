@@ -603,6 +603,13 @@ pub(crate) enum AppEvent {
     /// Commit settled asynchronous usage output after stream shutdown.
     CommitPendingUsageOutputAfterStreamShutdown,
 
+    /// Fire a delayed local loop iteration if the generation still matches.
+    LoopTimerFired {
+        generation: u64,
+        owner: uuid::Uuid,
+        thread_id: Option<ThreadId>,
+    },
+
     /// Send a user-confirmed request to notify the workspace owner.
     SendAddCreditsNudgeEmail {
         credit_type: AddCreditsNudgeCreditType,

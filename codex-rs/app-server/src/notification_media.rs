@@ -54,6 +54,8 @@ pub(crate) fn without_notification_media(notification: ServerNotification) -> Se
             ServerNotification::RawResponseItemCompleted(notification)
         }
         ServerNotification::Error(_)
+        // Channel attachments carry local paths, not inline image/audio data.
+        | ServerNotification::ChannelMessage(_)
         | ServerNotification::ThreadStarted(_)
         | ServerNotification::ThreadStatusChanged(_)
         | ServerNotification::ThreadArchived(_)

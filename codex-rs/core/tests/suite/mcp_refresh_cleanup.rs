@@ -56,6 +56,7 @@ async fn refresh_keeps_superseded_mcp_server_alive_for_in_flight_calls() -> anyh
                     scopes: None,
                     oauth: None,
                     oauth_resource: None,
+                    channel: Default::default(),
                     tools: HashMap::new(),
                 },
             );

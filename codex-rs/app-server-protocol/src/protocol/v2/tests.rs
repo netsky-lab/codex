@@ -2668,6 +2668,39 @@ fn mcp_server_status_updated_serializes_failure_reason() {
 }
 
 #[test]
+fn channel_message_notification_serializes_as_global_server_notification() {
+    let notification = ServerNotification::ChannelMessage(ChannelMessageNotification {
+        event: codex_protocol::protocol::ChannelMessageEvent {
+            id: "telegram:101".to_string(),
+            schema_version: 1,
+            server: "telegram-channel".to_string(),
+            source: Some("telegram".to_string()),
+            sender: Some("alice".to_string()),
+            text: "ship it".to_string(),
+            attachments: Vec::new(),
+            metadata: None,
+        },
+    });
+
+    assert_eq!(
+        serde_json::to_value(notification).expect("notification should serialize"),
+        serde_json::json!({
+            "method": "channel/message",
+            "params": {
+                "event": {
+                    "id": "telegram:101",
+                    "schemaVersion": 1,
+                    "server": "telegram-channel",
+                    "source": "telegram",
+                    "sender": "alice",
+                    "text": "ship it"
+                }
+            }
+        })
+    );
+}
+
+#[test]
 fn mcp_server_status_serializes_absent_server_info_metadata_as_null() {
     let response = ListMcpServerStatusResponse {
         data: vec![McpServerStatus {

@@ -4277,6 +4277,7 @@ async fn no_local_runtime_fails_local_stdio_but_keeps_local_http_server() {
                 oauth: None,
                 oauth_resource: None,
                 tools: HashMap::new(),
+                channel: Default::default(),
             }),
         ),
         (
@@ -4305,6 +4306,7 @@ async fn no_local_runtime_fails_local_stdio_but_keeps_local_http_server() {
                 oauth: None,
                 oauth_resource: None,
                 tools: HashMap::new(),
+                channel: Default::default(),
             }),
         ),
     ]);
@@ -4416,6 +4418,7 @@ fn mcp_init_error_display_prompts_for_github_pat() {
         oauth: None,
         oauth_resource: None,
         tools: HashMap::new(),
+        channel: Default::default(),
     };
     let err: StartupOutcomeError = anyhow::anyhow!("OAuth is unsupported").into();
 
@@ -4576,6 +4579,7 @@ fn mcp_init_error_display_reports_generic_errors() {
         oauth: None,
         oauth_resource: None,
         tools: HashMap::new(),
+        channel: Default::default(),
     };
     let err: StartupOutcomeError = anyhow::anyhow!("boom").into();
 
@@ -4655,6 +4659,7 @@ fn reusable_server_config(url: &str) -> McpServerConfig {
         oauth: None,
         oauth_resource: None,
         tools: HashMap::new(),
+        channel: Default::default(),
     }
 }
 
@@ -4663,6 +4668,32 @@ fn reusable_server_runtime_context() -> McpRuntimeContext {
         Arc::new(environment_manager_without_environments()),
         PathBuf::from("/tmp"),
     )
+}
+
+#[test]
+fn channel_policy_changes_invalidate_reusable_connections() {
+    let config = reusable_server_config("https://example.com/mcp");
+    let runtime_context = reusable_server_runtime_context();
+    let original = reusable_server_identity(&config, &runtime_context);
+    assert!(
+        original.has_same_connection_config(&reusable_server_identity(&config, &runtime_context))
+    );
+    for field in ["enabled", "mode", "queue", "dedupe", "rate"] {
+        let mut changed = config.clone();
+        match field {
+            "enabled" => changed.channel.enabled = true,
+            "mode" => changed.channel.mode = codex_config::McpServerChannelMode::Immediate,
+            "queue" => changed.channel.queue_capacity += 1,
+            "dedupe" => changed.channel.dedupe_capacity += 1,
+            "rate" => changed.channel.rate_limit_per_minute += 1,
+            _ => unreachable!(),
+        }
+        assert!(
+            !original
+                .has_same_connection_config(&reusable_server_identity(&changed, &runtime_context)),
+            "channel {field} changes must reinitialize the callback and advertised capability"
+        );
+    }
 }
 
 fn reusable_server_identity(

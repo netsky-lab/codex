@@ -5701,6 +5701,26 @@
           "properties": {
             "method": {
               "enum": [
+                "channel/message"
+              ],
+              "title": "Channel/messageNotificationMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/v2/ChannelMessageNotification"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "title": "Channel/messageNotification",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "enum": [
                 "warning"
               ],
               "title": "WarningNotificationMethod",
@@ -8167,6 +8187,101 @@
             "type": "object"
           }
         ]
+      },
+      "ChannelMessageAttachment": {
+        "properties": {
+          "fileName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fileSize": {
+            "format": "uint64",
+            "minimum": 0.0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": "string"
+          },
+          "metadata": true,
+          "mimeType": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "type": "object"
+      },
+      "ChannelMessageEvent": {
+        "properties": {
+          "attachments": {
+            "items": {
+              "$ref": "#/definitions/v2/ChannelMessageAttachment"
+            },
+            "type": "array"
+          },
+          "id": {
+            "type": "string"
+          },
+          "metadata": true,
+          "schemaVersion": {
+            "format": "uint32",
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "sender": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "server": {
+            "type": "string"
+          },
+          "source": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "schemaVersion",
+          "server",
+          "text"
+        ],
+        "type": "object"
+      },
+      "ChannelMessageNotification": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "event": {
+            "$ref": "#/definitions/v2/ChannelMessageEvent"
+          }
+        },
+        "required": [
+          "event"
+        ],
+        "title": "ChannelMessageNotification",
+        "type": "object"
       },
       "CliAuthCredentialsStoreMode": {
         "enum": [

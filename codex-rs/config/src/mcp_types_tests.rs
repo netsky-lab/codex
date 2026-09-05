@@ -258,6 +258,45 @@ fn deserialize_required_server_config() {
 }
 
 #[test]
+fn deserialize_channel_config_defaults_to_disabled() {
+    let cfg: McpServerConfig = toml::from_str(
+        r#"
+            command = "echo"
+        "#,
+    )
+    .expect("should deserialize command config");
+
+    assert!(!cfg.channel.enabled);
+    assert_eq!(cfg.channel.mode, McpServerChannelMode::Queue);
+    assert_eq!(cfg.channel.queue_capacity, 50);
+    assert_eq!(cfg.channel.dedupe_capacity, 200);
+    assert_eq!(cfg.channel.rate_limit_per_minute, 30);
+}
+
+#[test]
+fn deserialize_channel_config() {
+    let cfg: McpServerConfig = toml::from_str(
+        r#"
+            command = "node"
+
+            [channel]
+            enabled = true
+            mode = "immediate"
+            queue_capacity = 10
+            dedupe_capacity = 25
+            rate_limit_per_minute = 6
+        "#,
+    )
+    .expect("should deserialize channel config");
+
+    assert!(cfg.channel.enabled);
+    assert_eq!(cfg.channel.mode, McpServerChannelMode::Immediate);
+    assert_eq!(cfg.channel.queue_capacity, 10);
+    assert_eq!(cfg.channel.dedupe_capacity, 25);
+    assert_eq!(cfg.channel.rate_limit_per_minute, 6);
+}
+
+#[test]
 fn deserialize_streamable_http_server_config() {
     let cfg: McpServerConfig = toml::from_str(
         r#"
@@ -573,6 +612,7 @@ fn deserialize_ignores_unknown_server_fields() {
             oauth: None,
             oauth_resource: None,
             tools: HashMap::new(),
+            channel: Default::default(),
         }
     );
 }

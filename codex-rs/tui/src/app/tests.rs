@@ -8650,3 +8650,55 @@ mod active_reconnect;
 #[cfg(unix)]
 #[path = "tests/navigation_reconnect_tests.rs"]
 mod navigation_reconnect;
+
+#[tokio::test]
+async fn expired_loop_dynamic_request_cannot_start_runner() -> Result<()> {
+    let (mut app, mut events, mut ops) = make_test_app_with_channels().await;
+    let app_server =
+        crate::start_embedded_app_server_for_picker(app.chat_widget.config_ref()).await?;
+    let thread_id = ThreadId::new();
+    let cwd = app.chat_widget.config_ref().cwd.to_path_buf();
+    app.chat_widget
+        .handle_thread_session_quiet(test_thread_session(thread_id, cwd));
+    while events.try_recv().is_ok() {}
+    while ops.try_recv().is_ok() {}
+    app.handle_app_server_event(
+        &app_server,
+        codex_app_server_client::AppServerEvent::ServerRequest(Box::new(ServerRequest::DynamicToolCall {
+            request_id: AppServerRequestId::Integer(931),
+            params: codex_app_server_protocol::DynamicToolCallParams {
+                thread_id: thread_id.to_string(),
+                turn_id: "turn-1".to_string(),
+                call_id: "expired-loop".to_string(),
+                namespace: None,
+                tool: "loop_control".to_string(),
+                arguments: serde_json::json!({"action":"start", "mode":"immediate", "prompt":"must not run", "_loop_deadline_ms":1}),
+            },
+        })),
+    ).await;
+    let AppEvent::DynamicToolCallCompleted { response, .. } =
+        events.try_recv().expect("loop response")
+    else {
+        panic!("expected loop response")
+    };
+    assert_eq!(
+        response,
+        crate::dynamic_tools::failure_response(
+            "Local loop request expired before the TUI could apply it."
+        )
+    );
+    assert!(!matches!(ops.try_recv(), Ok(Op::UserTurn { .. })));
+    let status = app.chat_widget.handle_loop_tool_call(
+        &thread_id.to_string(),
+        serde_json::json!({"action":"status"}),
+    );
+    let [codex_app_server_protocol::DynamicToolCallOutputContentItem::InputText { text }] =
+        status.content_items.as_slice()
+    else {
+        panic!("expected status")
+    };
+    let snapshot: codex_protocol::protocol::LoopStatusSnapshot = serde_json::from_str(text)?;
+    assert!(!snapshot.active);
+    assert_eq!(snapshot.completed_iterations, 0);
+    Ok(())
+}

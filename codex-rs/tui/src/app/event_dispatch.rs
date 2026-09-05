@@ -1505,6 +1505,9 @@ impl App {
             AppEvent::CommitPendingUsageOutput => {
                 self.insert_pending_usage_output_if_ready(tui);
             }
+            AppEvent::LoopTimerFired { generation, owner, thread_id } => {
+                self.chat_widget.on_loop_timer_fired(owner, thread_id, generation);
+            }
             AppEvent::CommitPendingUsageOutputAfterStreamShutdown => {
                 self.insert_pending_usage_output_after_stream_shutdown(tui);
             }

@@ -3545,3 +3545,278 @@ async fn compact_queues_user_messages_snapshot() {
         normalize_snapshot_paths(term.backend().vt100().screen().contents())
     );
 }
+
+fn next_user_turn_text(op_rx: &mut tokio::sync::mpsc::UnboundedReceiver<Op>) -> String {
+    match next_submit_op(op_rx) {
+        Op::UserTurn { items, .. } => {
+            let Some(UserInput::Text { text, .. }) = items.into_iter().next() else {
+                panic!("expected user turn text item")
+            };
+            text
+        }
+        other => panic!("expected user turn op, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn loop_minutes_submits_now_and_waits_after_completion() {
+    let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    chat.thread_id = Some(ThreadId::new());
+
+    chat.dispatch_command_with_args(SlashCommand::Loop, "10 keep going".to_string(), Vec::new());
+
+    assert_eq!(next_user_turn_text(&mut op_rx), "keep going");
+    assert!(chat.loop_ui.enabled);
+    assert_eq!(chat.loop_ui.interval_minutes, Some(10));
+    assert_eq!(chat.loop_ui.completed_iterations, 1);
+
+    handle_turn_completed(&mut chat, "turn-1", /*duration_ms*/ None);
+
+    assert!(chat.loop_ui.enabled);
+    assert!(chat.loop_ui.timer_pending);
+    assert_no_submit_op(&mut op_rx);
+
+    let generation = chat.loop_ui.generation;
+    chat.on_loop_timer_fired(chat.loop_ui.owner, chat.thread_id, generation);
+    assert_eq!(next_user_turn_text(&mut op_rx), "keep going");
+}
+
+#[tokio::test]
+async fn loop_now_submits_after_completion_without_timer() {
+    let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    chat.thread_id = Some(ThreadId::new());
+
+    chat.dispatch_command_with_args(
+        SlashCommand::Loop,
+        "now --max 2 keep going".to_string(),
+        Vec::new(),
+    );
+
+    assert_eq!(next_user_turn_text(&mut op_rx), "keep going");
+    assert!(chat.loop_ui.enabled);
+    assert!(chat.loop_ui.immediate);
+    assert_eq!(chat.loop_ui.completed_iterations, 1);
+
+    handle_turn_completed(&mut chat, "turn-1", /*duration_ms*/ None);
+
+    assert!(chat.loop_ui.enabled);
+    assert!(!chat.loop_ui.timer_pending);
+    assert_eq!(next_user_turn_text(&mut op_rx), "keep going");
+    assert_eq!(chat.loop_ui.completed_iterations, 2);
+
+    handle_turn_completed(&mut chat, "turn-2", /*duration_ms*/ None);
+
+    assert!(!chat.loop_ui.enabled);
+    assert_no_submit_op(&mut op_rx);
+}
+
+#[tokio::test]
+async fn loop_stop_and_replacement_ignore_stale_timers() {
+    let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    chat.thread_id = Some(ThreadId::new());
+    chat.handle_loop_command_args("1 first");
+    assert_eq!(next_user_turn_text(&mut op_rx), "first");
+    handle_turn_completed(&mut chat, "turn-1", /*duration_ms*/ None);
+    let old = (chat.loop_ui.owner, chat.thread_id, chat.loop_ui.generation);
+    chat.handle_loop_command_args("stop");
+    chat.on_loop_timer_fired(old.0, old.1, old.2);
+    assert_no_submit_op(&mut op_rx);
+    chat.handle_loop_command_args("once second");
+    assert_eq!(next_user_turn_text(&mut op_rx), "second");
+    handle_turn_completed(&mut chat, "turn-2", /*duration_ms*/ None);
+    chat.on_loop_timer_fired(old.0, old.1, old.2);
+    assert_no_submit_op(&mut op_rx);
+    assert!(!chat.loop_ui.enabled);
+}
+
+#[tokio::test]
+async fn loop_timer_cannot_cross_threads_or_widgets() {
+    let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    chat.thread_id = Some(ThreadId::new());
+    chat.handle_loop_command_args("1 work");
+    assert_eq!(next_user_turn_text(&mut op_rx), "work");
+    handle_turn_completed(&mut chat, "turn-1", /*duration_ms*/ None);
+    let thread_id = chat.thread_id;
+    chat.on_loop_timer_fired(uuid::Uuid::new_v4(), thread_id, chat.loop_ui.generation);
+    assert_no_submit_op(&mut op_rx);
+    chat.thread_id = Some(ThreadId::new());
+    chat.on_loop_timer_fired(chat.loop_ui.owner, thread_id, chat.loop_ui.generation);
+    handle_turn_completed(&mut chat, "other-turn", /*duration_ms*/ None);
+    assert_no_submit_op(&mut op_rx);
+    assert!(!chat.loop_ui.enabled);
+}
+
+#[tokio::test]
+async fn loop_failed_submission_and_interruption_stop_without_counting() {
+    let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    chat.thread_id = Some(ThreadId::new());
+    chat.misalignment_policy_violation = true;
+    chat.handle_loop_command_args("now work");
+    assert_eq!(chat.loop_ui.completed_iterations, 0);
+    assert!(!chat.loop_ui.enabled);
+    assert_no_submit_op(&mut op_rx);
+    chat.misalignment_policy_violation = false;
+    chat.handle_loop_command_args("now work");
+    assert_eq!(next_user_turn_text(&mut op_rx), "work");
+    chat.on_interrupted_turn(TurnAbortReason::Interrupted);
+    handle_turn_completed(&mut chat, "turn-1", /*duration_ms*/ None);
+    assert!(!chat.loop_ui.enabled);
+    assert_no_submit_op(&mut op_rx);
+}
+
+#[tokio::test]
+async fn loop_once_disallows_shell_escape_and_invalid_options_do_not_start() {
+    let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    chat.thread_id = Some(ThreadId::new());
+    for args in [
+        "0 work",
+        "now --max 0 work",
+        "now --max bad work",
+        "18446744073709551615 work",
+    ] {
+        chat.handle_loop_command_args(args);
+        assert!(!chat.loop_ui.enabled);
+        assert_no_submit_op(&mut op_rx);
+    }
+    chat.handle_loop_command_args("once !echo hello");
+    assert_eq!(next_user_turn_text(&mut op_rx), "!echo hello");
+    assert!(!chat.loop_ui.enabled);
+}
+
+#[tokio::test]
+async fn loop_status_history_snapshot() {
+    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    chat.handle_loop_command_args("status");
+    let cells = drain_insert_history(&mut rx);
+    insta::assert_snapshot!(
+        "loop_status",
+        cells
+            .iter()
+            .map(|cell| lines_to_single_string(cell))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+}
+
+#[tokio::test]
+async fn loop_prioritizes_queued_input_and_waits_for_native_goal() {
+    let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    chat.thread_id = Some(ThreadId::new());
+    chat.handle_loop_command_args("now --max 3 loop work");
+    assert_eq!(next_user_turn_text(&mut op_rx), "loop work");
+    submit_composer_text(&mut chat, "user work");
+    handle_turn_completed(&mut chat, "turn-1", /*duration_ms*/ None);
+    assert_eq!(next_user_turn_text(&mut op_rx), "user work");
+    assert_eq!(chat.loop_ui.completed_iterations, 1);
+    chat.current_goal_status = Some(GoalStatusState::new(
+        AppThreadGoal {
+            thread_id: chat.thread_id.unwrap().to_string(),
+            objective: "native work".to_string(),
+            status: AppThreadGoalStatus::Active,
+            token_budget: None,
+            tokens_used: 0,
+            time_used_seconds: 0,
+            created_at: 0,
+            updated_at: 0,
+        },
+        Instant::now(),
+    ));
+    handle_turn_completed(&mut chat, "turn-2", /*duration_ms*/ None);
+    assert_no_submit_op(&mut op_rx);
+    assert!(chat.loop_ui.enabled);
+    chat.on_thread_goal_cleared(&chat.thread_id.unwrap().to_string());
+    assert_eq!(next_user_turn_text(&mut op_rx), "loop work");
+}
+
+#[tokio::test]
+async fn loop_once_started_during_turn_runs_after_completion_and_errors_stop_loop() {
+    let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    chat.thread_id = Some(ThreadId::new());
+    submit_composer_text(&mut chat, "user work");
+    assert_eq!(next_user_turn_text(&mut op_rx), "user work");
+    chat.handle_loop_command_args("once loop work");
+    assert_no_submit_op(&mut op_rx);
+    handle_turn_completed(&mut chat, "turn-1", /*duration_ms*/ None);
+    assert_eq!(next_user_turn_text(&mut op_rx), "loop work");
+    assert!(!chat.loop_ui.enabled);
+    chat.handle_loop_command_args("now loop work");
+    chat.on_server_overloaded_error("overloaded".to_string());
+    handle_turn_completed(&mut chat, "turn-2", /*duration_ms*/ None);
+    assert!(!chat.loop_ui.enabled);
+    assert_no_submit_op(&mut op_rx);
+}
+
+#[tokio::test]
+async fn loop_late_model_start_cannot_undo_local_stop() {
+    let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    chat.thread_id = Some(ThreadId::new());
+    chat.handle_loop_command_args("stop");
+    chat.on_loop_control(LoopControlEvent {
+        action: LoopControlAction::Start,
+        mode: Some(LoopControlMode::Immediate),
+        interval_minutes: None,
+        max_iterations: None,
+        prompt: Some("late work".to_string()),
+        reason: None,
+    });
+    assert!(!chat.loop_ui.enabled);
+    assert_no_submit_op(&mut op_rx);
+}
+
+#[tokio::test]
+async fn loop_tool_returns_authoritative_status_and_rejects_other_threads() {
+    let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    let thread_id = ThreadId::new();
+    chat.thread_id = Some(thread_id);
+    let args = serde_json::json!({"action":"start", "mode":"immediate", "max_iterations":2, "prompt":"work"});
+    let other = chat.handle_loop_tool_call(&ThreadId::new().to_string(), args.clone());
+    assert!(!other.success);
+    assert!(!chat.loop_ui.enabled);
+    let response = chat.handle_loop_tool_call(&thread_id.to_string(), args);
+    assert!(response.success);
+    assert_eq!(next_user_turn_text(&mut op_rx), "work");
+    let status = chat.handle_loop_tool_call(
+        &thread_id.to_string(),
+        serde_json::json!({"action":"status"}),
+    );
+    assert_eq!(status, response);
+    let stopped =
+        chat.handle_loop_tool_call(&thread_id.to_string(), serde_json::json!({"action":"stop"}));
+    assert!(stopped.success);
+    assert!(!chat.loop_ui.enabled);
+    assert_ne!(stopped, status);
+}
+
+#[tokio::test]
+async fn loop_wakes_once_when_idle_goal_becomes_inactive() {
+    for mode in ["now", "once"] {
+        for status in [
+            AppThreadGoalStatus::Paused,
+            AppThreadGoalStatus::Complete,
+            AppThreadGoalStatus::Blocked,
+        ] {
+            let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+            chat.thread_id = Some(ThreadId::new());
+            chat.set_feature_enabled(Feature::Goals, /*enabled*/ true);
+            let mut goal = AppThreadGoal {
+                thread_id: chat.thread_id.unwrap().to_string(),
+                objective: "native work".to_string(),
+                status: AppThreadGoalStatus::Active,
+                token_budget: None,
+                tokens_used: 0,
+                time_used_seconds: 0,
+                created_at: 0,
+                updated_at: 0,
+            };
+            chat.on_thread_goal_updated(goal.clone(), /*turn_id*/ None);
+            chat.handle_loop_command_args(&format!("{mode} loop work"));
+            assert_no_submit_op(&mut op_rx);
+            goal.status = status;
+            chat.on_thread_goal_updated(goal.clone(), /*turn_id*/ None);
+            assert_eq!(next_user_turn_text(&mut op_rx), "loop work");
+            assert_eq!(chat.loop_ui.completed_iterations, 1);
+            chat.on_thread_goal_updated(goal, /*turn_id*/ None);
+            assert_no_submit_op(&mut op_rx);
+        }
+    }
+}

@@ -433,6 +433,7 @@ fn mcp_dependency_to_server_config(
                     callback_port: Some(callback_port),
                 }),
             oauth_resource: None,
+            channel: Default::default(),
             tools: HashMap::new(),
         });
     }
@@ -465,6 +466,7 @@ fn mcp_dependency_to_server_config(
             scopes: None,
             oauth: None,
             oauth_resource: None,
+            channel: Default::default(),
             tools: HashMap::new(),
         });
     }

@@ -547,6 +547,7 @@ fn stdio_server(
         oauth: None,
         oauth_resource: None,
         tools: HashMap::new(),
+        channel: Default::default(),
     }
 }
 
@@ -587,6 +588,7 @@ fn declared_placement_preserves_local_plugin_normalization() {
         }),
         oauth_resource: None,
         tools: HashMap::new(),
+        channel: Default::default(),
     };
     let mut expected_helper = McpServerConfig {
         oauth: None,
@@ -874,6 +876,7 @@ fn local_environment_placement_preserves_http_env_references() {
                     oauth: None,
                     oauth_resource: None,
                     tools: HashMap::new(),
+                    channel: Default::default(),
                 },
             )]),
             errors: Vec::new(),

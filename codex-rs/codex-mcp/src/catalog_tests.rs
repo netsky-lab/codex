@@ -54,6 +54,7 @@ fn server(url: &str) -> McpServerConfig {
                 ..Default::default()
             },
         )]),
+        channel: Default::default(),
     }
 }
 

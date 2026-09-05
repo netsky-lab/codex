@@ -468,6 +468,7 @@ async fn run_add(config_overrides: &CliConfigOverrides, add_args: AddArgs) -> Re
                 callback_port: None,
             }),
         oauth_resource: oauth_resource.clone(),
+        channel: Default::default(),
         tools: HashMap::new(),
     };
 

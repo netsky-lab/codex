@@ -68,6 +68,7 @@ impl ChatWidget {
     // Raw reasoning uses the same flow as summarized reasoning
 
     pub(super) fn on_task_started(&mut self) {
+        self.loop_ui.model_start_blocked = false;
         self.input_queue.user_turn_pending_start = false;
         self.reset_safety_buffering_for_turn_start();
         self.turn_lifecycle.start(Instant::now());
@@ -206,6 +207,8 @@ impl ChatWidget {
         }
         // If there is a queued user message, send exactly one now to begin the next turn.
         let follow_up_started = self.maybe_send_next_queued_input();
+        let loop_follow_up_started =
+            !from_replay && !follow_up_started && self.maybe_continue_loop_after_turn();
         let active_goal_continuing = self
             .current_goal_status
             .as_ref()
@@ -214,7 +217,7 @@ impl ChatWidget {
         // Queued follow-up input and active goal continuation both start the
         // next turn immediately, so notifying at that boundary would feel like
         // a false "needs attention".
-        if !follow_up_started && !active_goal_continuing {
+        if !follow_up_started && !loop_follow_up_started && !active_goal_continuing {
             self.notify(Notification::AgentTurnComplete {
                 response: notification_response,
             });
@@ -345,6 +348,7 @@ impl ChatWidget {
     }
 
     pub(super) fn on_server_overloaded_error(&mut self, message: String) {
+        self.stop_loop();
         self.input_queue.submit_pending_steers_after_interrupt = false;
         self.finalize_turn();
 
@@ -360,6 +364,7 @@ impl ChatWidget {
     }
 
     fn on_error(&mut self, message: String) {
+        self.stop_loop();
         self.input_queue.submit_pending_steers_after_interrupt = false;
         self.flush_answer_stream_with_separator();
         self.finalize_turn();

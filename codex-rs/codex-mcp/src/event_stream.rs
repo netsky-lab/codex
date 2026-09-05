@@ -93,6 +93,7 @@ impl McpEventStreamOpener {
                     mcp_initialize_request_params(
                         ElicitationCapability::default(),
                         connection.client_mcp_extensions.clone(),
+                        /*channel_config*/ None,
                     ),
                     Some(startup_timeout),
                     Box::new(|_, _| Box::pin(async {

@@ -142,6 +142,7 @@ impl DynamicToolHandler {
             call_id,
             self.tool_name.clone(),
             args,
+            DynamicToolResponseWait::UntilCancelled,
         )
         .await
         .ok_or_else(|| {
@@ -167,16 +168,22 @@ impl DynamicToolHandler {
 
 impl CoreToolRuntime for DynamicToolHandler {}
 
+pub(super) enum DynamicToolResponseWait {
+    UntilCancelled,
+    Timeout(std::time::Duration),
+}
+
 #[expect(
     clippy::await_holding_invalid_type,
     reason = "active turn checks and dynamic tool response registration must remain atomic"
 )]
-async fn request_dynamic_tool(
+pub(super) async fn request_dynamic_tool(
     session: &Session,
     turn_context: &TurnContext,
     call_id: String,
     tool_name: ToolName,
     arguments: Value,
+    wait: DynamicToolResponseWait,
 ) -> Option<DynamicToolResponse> {
     let namespace = tool_name.namespace;
     let tool = tool_name.name;
@@ -213,7 +220,26 @@ async fn request_dynamic_tool(
             }),
         )
         .await;
-    let response = rx_response.await.ok();
+    let response = match wait {
+        DynamicToolResponseWait::UntilCancelled => rx_response.await.ok(),
+        DynamicToolResponseWait::Timeout(duration) => {
+            let response = tokio::time::timeout(duration, rx_response)
+                .await
+                .ok()
+                .and_then(Result::ok);
+            if response.is_none() {
+                let mut active = session.active_turn.lock().await;
+                if let Some(active) = active.as_mut() {
+                    active
+                        .turn_state
+                        .lock()
+                        .await
+                        .remove_pending_dynamic_tool(&call_id);
+                }
+            }
+            response
+        }
+    };
 
     let item = match &response {
         Some(response) => DynamicToolCallItem {

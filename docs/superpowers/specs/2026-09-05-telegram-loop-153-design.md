@@ -1,0 +1,13 @@
+# Codex 0.153.4: Telegram and local loops
+
+The requested baseline is netsky-lab/codex branch channels-telegram-v0.147.0-local (f08cf084cb), explicitly confirmed by the user. The target is the latest stable upstream release rust-v0.153.4, verified against GitHub releases on 2026-09-05. Develop on a separate local feature branch; preserve upstream behavior and native goals.
+
+Preserve the 0.147 channel delivery contract: opt-in channel.enabled, direct MCP notifications, bounded deduplication/rate controls, readable TUI history, structured model routing metadata, local image attachments, and no shell escape interpretation of inbound messages. Port the existing focused modules to the current transport and app-server APIs and regenerate protocol/config artifacts from the new source.
+
+Restore the local loop removed by fca3d366c3: timed, immediate, and once modes, maximum iteration count, status and stop, and root-agent loop_control. Preserve user input priority. A stopped/replaced loop must ignore stale timers; failures/interruption must not cause runaway automatic submissions. Loop execution is local to the active TUI session, independent of native goal completion. Ensure current app-server process separation does not make loop status falsely report success or mix threads.
+
+Synchronize the standalone Telegram marketplace with the working 0.147 bridge, preserving allowlists, topic routes, attachments, locks, persisted offsets, reconnect and shutdown behavior. Keep both plugin copies identical. Add reproducible local build/verification instructions for the stable target.
+
+Validate bridge self-tests and real stdio protocol behavior, focused Rust tests via just test, TUI snapshots, config/app-server schema generation, scoped lint and formatting, and a local CLI build/version smoke test. The confirmed deployment target is a Linux server. Provide a complete portable Linux bundle and separate installer, with an artifact-only CI build from the feature branch. Real Telegram delivery, installed CLI replacement and public release publication remain separate actions.
+
+Loop control uses the existing dynamic tool request/response transport with a bounded wait and expiry. The TUI owns the authoritative session state; stale timers and expired or wrong-thread model requests cannot mutate it. Environment-free helper requests, such as recaps, do not expose loop control. Synthetic model-visible messages implement ContextualUserFragment in the existing shared context-fragments crate and are reexported through core/context, preserving the enforced TUI/core dependency boundary. The Telegram adapter rejects events larger than 8000 serialized UTF-8 bytes, and discovery without a receiving session never starts polling.

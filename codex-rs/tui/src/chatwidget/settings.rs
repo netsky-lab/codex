@@ -625,8 +625,16 @@ impl ChatWidget {
         {
             self.turn_lifecycle.mark_budget_limited(turn_id);
         }
+        let goal_released_loop = self
+            .current_goal_status
+            .as_ref()
+            .is_some_and(GoalStatusState::is_active)
+            && goal.status != AppThreadGoalStatus::Active;
         self.current_goal_status = Some(GoalStatusState::new(goal, Instant::now()));
         self.update_collaboration_mode_indicator();
+        if goal_released_loop {
+            self.resume_loop_after_goal();
+        }
     }
 
     /// Cycle to the next collaboration mode variant (Plan -> Default -> Plan).

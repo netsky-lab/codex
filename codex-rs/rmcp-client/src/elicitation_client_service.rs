@@ -5,6 +5,7 @@ use codex_protocol::mcp::OPENAI_ELICITATION_EXTENSION_ID;
 use rmcp::RoleClient;
 use rmcp::model::ClientInfo;
 use rmcp::model::ClientResult;
+use rmcp::model::CustomNotification;
 use rmcp::model::CustomRequest;
 use rmcp::model::CustomResult;
 use rmcp::model::ElicitResult;
@@ -27,6 +28,7 @@ use crate::logging_client_handler::LoggingClientHandler;
 use crate::rmcp_client::Elicitation;
 use crate::rmcp_client::ElicitationPauseState;
 use crate::rmcp_client::ElicitationResponse;
+use crate::rmcp_client::SendCustomNotification;
 use crate::rmcp_client::SendElicitation;
 
 const MCP_PROGRESS_TOKEN_META_KEY: &str = "progressToken";
@@ -56,6 +58,7 @@ pub(crate) struct ElicitationClientService {
     supports_openai_form: bool,
     supports_openai_elicitation_form: bool,
     send_elicitation: Arc<SendElicitation>,
+    send_custom_notification: Arc<SendCustomNotification>,
     pause_state: ElicitationPauseState,
 }
 
@@ -63,6 +66,7 @@ impl ElicitationClientService {
     pub(crate) fn new(
         client_info: ClientInfo,
         send_elicitation: SendElicitation,
+        send_custom_notification: SendCustomNotification,
         pause_state: ElicitationPauseState,
     ) -> Self {
         let supports_openai_form = client_info
@@ -86,6 +90,7 @@ impl ElicitationClientService {
             supports_openai_form,
             supports_openai_elicitation_form,
             send_elicitation,
+            send_custom_notification: Arc::new(send_custom_notification),
             pause_state,
         }
     }
@@ -206,12 +211,21 @@ impl Service<RoleClient> for ElicitationClientService {
         notification: ServerNotification,
         context: NotificationContext<RoleClient>,
     ) -> Result<(), rmcp::ErrorData> {
-        <LoggingClientHandler as Service<RoleClient>>::handle_notification(
-            &self.handler,
-            notification,
-            context,
-        )
-        .await
+        match notification {
+            ServerNotification::CustomNotification(notification) => {
+                let CustomNotification { method, params, .. } = notification;
+                (self.send_custom_notification)(method, params).await;
+                Ok(())
+            }
+            notification => {
+                <LoggingClientHandler as Service<RoleClient>>::handle_notification(
+                    &self.handler,
+                    notification,
+                    context,
+                )
+                .await
+            }
+        }
     }
 
     fn get_info(&self) -> ClientInfo {

@@ -99,6 +99,7 @@ pub(crate) mod auth_elicitation;
 mod binding;
 pub(crate) mod binding_clients;
 mod catalog;
+pub(crate) mod channel_notifications;
 mod client_capabilities;
 pub(crate) mod codex_apps;
 pub(crate) mod connection_manager;

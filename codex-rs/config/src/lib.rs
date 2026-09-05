@@ -149,6 +149,8 @@ pub use mcp_edit::load_global_mcp_servers;
 pub use mcp_types::AppToolApproval;
 pub use mcp_types::DEFAULT_MCP_SERVER_ENVIRONMENT_ID;
 pub use mcp_types::McpServerAuth;
+pub use mcp_types::McpServerChannelConfig;
+pub use mcp_types::McpServerChannelMode;
 pub use mcp_types::McpServerConfig;
 pub use mcp_types::McpServerDisabledReason;
 pub use mcp_types::McpServerEnvVar;

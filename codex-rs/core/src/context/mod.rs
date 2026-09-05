@@ -54,7 +54,9 @@ pub(crate) use available_plugins_instructions::AvailablePluginsInstructions;
 pub(crate) use base_instructions::BaseInstructionsFragment;
 pub(crate) use codex_context_fragments::AdditionalContextDeveloperFragment;
 pub(crate) use codex_context_fragments::AdditionalContextUserFragment;
+pub use codex_context_fragments::ChannelMessageContext;
 pub use codex_context_fragments::ContextualUserFragment;
+pub use codex_context_fragments::LoopContinuation;
 pub(crate) use compaction_summary::CompactionSummary;
 pub(crate) use contextual_user_message::is_contextual_user_fragment;
 pub(crate) use contextual_user_message::is_user_authorization_message;
@@ -113,3 +115,7 @@ pub use update_plan_instructions::without_update_plan_instructions;
 pub(crate) use user_instructions::UserInstructions;
 pub(crate) use user_shell_command::UserShellCommand;
 pub(crate) use world_state::ManagedDeveloperInstructions;
+
+#[cfg(test)]
+#[path = "channel_message_tests.rs"]
+mod channel_message_tests;

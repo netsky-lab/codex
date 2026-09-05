@@ -76,8 +76,15 @@ impl ChatWidget {
             .thread_id
             .is_some_and(|active_thread_id| active_thread_id.to_string() == thread_id)
         {
+            let goal_released_loop = self
+                .current_goal_status
+                .as_ref()
+                .is_some_and(GoalStatusState::is_active);
             self.current_goal_status = None;
             self.update_collaboration_mode_indicator();
+            if goal_released_loop {
+                self.resume_loop_after_goal();
+            }
         }
     }
 }

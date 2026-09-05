@@ -202,6 +202,7 @@ impl ChatWidget {
             #[cfg(test)]
             pet_image_support_override: None,
             thread_id: None,
+            loop_ui: LoopUiState::default(),
             thread_name: None,
             pending_automatic_thread_names: HashSet::new(),
             thread_rename_block_message: None,

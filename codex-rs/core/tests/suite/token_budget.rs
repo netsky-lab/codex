@@ -670,6 +670,7 @@ async fn token_budget_context_injects_plain_thread_hint_text() -> Result<()> {
                     scopes: None,
                     oauth: None,
                     oauth_resource: None,
+                    channel: Default::default(),
                     tools: HashMap::new(),
                 },
             );

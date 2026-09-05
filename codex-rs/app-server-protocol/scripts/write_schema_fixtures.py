@@ -39,15 +39,15 @@ def main() -> None:
 
     subprocess.run(
         [
-            "cargo",
+            "just",
             "test",
             "-p",
             "codex-app-server-protocol",
             "--lib",
-            "schema_fixtures_tests::write_schema_fixtures_from_env",
-            "--",
-            "--exact",
-            "--ignored",
+            "--run-ignored",
+            "only",
+            "-E",
+            "test(=schema_fixtures_tests::write_schema_fixtures_from_env)",
         ],
         cwd=workspace_root,
         env=env,

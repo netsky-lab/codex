@@ -340,6 +340,30 @@ impl App {
         request: ServerRequest,
     ) {
         if let ServerRequest::DynamicToolCall { request_id, params } = &request {
+            if params.namespace.is_none() && params.tool == "loop_control" {
+                let now_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis();
+                let response = if params
+                    .arguments
+                    .get("_loop_deadline_ms")
+                    .and_then(serde_json::Value::as_u64)
+                    .is_some_and(|deadline| u128::from(deadline) > now_ms)
+                {
+                    self.chat_widget
+                        .handle_loop_tool_call(&params.thread_id, params.arguments.clone())
+                } else {
+                    crate::dynamic_tools::failure_response(
+                        "Local loop request expired before the TUI could apply it.",
+                    )
+                };
+                self.app_event_tx.send(AppEvent::DynamicToolCallCompleted {
+                    request_id: request_id.clone(),
+                    response,
+                });
+                return;
+            }
             if self.dynamic_tool_tasks.contains_key(request_id)
                 || (params.namespace.as_deref() != Some(crate::dynamic_tools::NAMESPACE)
                     && !app_server_client.uses_embedded_app_server())

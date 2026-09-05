@@ -1215,6 +1215,30 @@ async fn zsh_fork_unified_exec_keeps_shell_parameter_when_remote_environment_ava
 }
 
 #[tokio::test]
+async fn loop_control_requires_root_thread_with_environment() {
+    let root = probe(|turn| {
+        turn.session_source = SessionSource::Cli;
+    })
+    .await;
+    root.assert_visible_contains(&["loop_control"]);
+
+    let isolated_helper = probe(|turn| {
+        turn.session_source = SessionSource::Cli;
+        turn.environments.environments.clear();
+    })
+    .await;
+    isolated_helper.assert_visible_lacks(&["loop_control"]);
+    isolated_helper.assert_registered_lacks(&["loop_control"]);
+
+    let subagent = probe(|turn| {
+        turn.session_source = SessionSource::SubAgent(SubAgentSource::Other("test".to_string()));
+    })
+    .await;
+    subagent.assert_visible_lacks(&["loop_control"]);
+    subagent.assert_registered_lacks(&["loop_control"]);
+}
+
+#[tokio::test]
 async fn environment_count_controls_environment_backed_tools() {
     let no_environment = probe(|turn| {
         turn.environments.environments.clear();

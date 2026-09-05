@@ -1112,7 +1112,17 @@ async fn status_snapshot_includes_enterprise_monthly_credit_limit() {
             *line = line.replace('\\', "/");
         }
     }
-    let sanitized = sanitize_directory(rendered_lines).join("\n");
+    // Keep the snapshot independent of the host's digit-grouping locale.
+    let sanitized = sanitize_directory(rendered_lines)
+        .join("\n")
+        .replace(
+            &codex_protocol::num_format::format_with_separators(8_000),
+            "8,000",
+        )
+        .replace(
+            &codex_protocol::num_format::format_with_separators(25_000),
+            "25,000",
+        );
     assert_snapshot!(sanitized);
 
     let mut rendered_lines = render_lines(&composite.display_lines(/*width*/ 46));
@@ -1121,7 +1131,17 @@ async fn status_snapshot_includes_enterprise_monthly_credit_limit() {
             *line = line.replace('\\', "/");
         }
     }
-    let sanitized = sanitize_directory(rendered_lines).join("\n");
+    // Keep the snapshot independent of the host's digit-grouping locale.
+    let sanitized = sanitize_directory(rendered_lines)
+        .join("\n")
+        .replace(
+            &codex_protocol::num_format::format_with_separators(8_000),
+            "8,000",
+        )
+        .replace(
+            &codex_protocol::num_format::format_with_separators(25_000),
+            "25,000",
+        );
     assert_snapshot!(
         "status_snapshot_wraps_enterprise_monthly_credit_details_in_narrow_terminal",
         sanitized

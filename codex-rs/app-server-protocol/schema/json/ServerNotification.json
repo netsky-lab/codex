@@ -653,6 +653,99 @@
       ],
       "type": "object"
     },
+    "ChannelMessageAttachment": {
+      "properties": {
+        "fileName": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "fileSize": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "kind": {
+          "type": "string"
+        },
+        "metadata": true,
+        "mimeType": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    "ChannelMessageEvent": {
+      "properties": {
+        "attachments": {
+          "items": {
+            "$ref": "#/definitions/ChannelMessageAttachment"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "metadata": true,
+        "schemaVersion": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "sender": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "server": {
+          "type": "string"
+        },
+        "source": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "schemaVersion",
+        "server",
+        "text"
+      ],
+      "type": "object"
+    },
+    "ChannelMessageNotification": {
+      "properties": {
+        "event": {
+          "$ref": "#/definitions/ChannelMessageEvent"
+        }
+      },
+      "required": [
+        "event"
+      ],
+      "type": "object"
+    },
     "CodexErrorInfo": {
       "description": "This translation layer make sure that we expose codex error code in camel case.\n\nWhen an upstream HTTP status is available (for example, from the Responses API or a provider), it is forwarded in `httpStatusCode` on the relevant `codexErrorInfo` variant.",
       "oneOf": [
@@ -7929,6 +8022,26 @@
         "params"
       ],
       "title": "Model/safetyBuffering/updatedNotification",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "channel/message"
+          ],
+          "title": "Channel/messageNotificationMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ChannelMessageNotification"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "title": "Channel/messageNotification",
       "type": "object"
     },
     {

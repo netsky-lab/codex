@@ -57,6 +57,7 @@ export type { CancelLoginAccountParams } from "./CancelLoginAccountParams";
 export type { CancelLoginAccountResponse } from "./CancelLoginAccountResponse";
 export type { CancelLoginAccountStatus } from "./CancelLoginAccountStatus";
 export type { CapabilityRootLocation } from "./CapabilityRootLocation";
+export type { ChannelMessageNotification } from "./ChannelMessageNotification";
 export type { ChatgptAuthTokensRefreshParams } from "./ChatgptAuthTokensRefreshParams";
 export type { ChatgptAuthTokensRefreshReason } from "./ChatgptAuthTokensRefreshReason";
 export type { ChatgptAuthTokensRefreshResponse } from "./ChatgptAuthTokensRefreshResponse";

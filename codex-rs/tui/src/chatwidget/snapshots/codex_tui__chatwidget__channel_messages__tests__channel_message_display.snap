@@ -1,0 +1,6 @@
+---
+source: tui/src/chatwidget/channel_messages.rs
+expression: display_text
+---
+Inbound telegram message from 123:
+ping

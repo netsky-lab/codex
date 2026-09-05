@@ -1,0 +1,224 @@
+name: channels-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag/name to publish"
+        required: true
+        default: "channels-v0.153.4"
+      create_release:
+        description: "Create a GitHub Release after building the artifact"
+        required: true
+        type: boolean
+        default: false
+  push:
+    branches:
+      - "channels-telegram-v*"
+
+concurrency:
+  group: channels-release-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CODEX_ZSH_RELEASE_TAG: codex-zsh-v0.1.0
+  CODEX_ZSH_MANIFEST_SHA256: c534eab89dcea7e3d8a5e5b3f49c025c7c64cd4e4d9814ee24871de58a9359a1
+
+jobs:
+  linux-x64:
+    name: Linux x86_64 portable bundle
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: codex-rs
+    env:
+      TARGET: x86_64-unknown-linux-musl
+      CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+      CARGO_BUILD_JOBS: "2"
+      AWS_LC_SYS_NO_JITTER_ENTROPY: "1"
+      AWS_LC_SYS_NO_JITTER_ENTROPY_x86_64_unknown_linux_musl: "1"
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Reserve space for the Rust build
+        shell: bash
+        run: |
+          set -euo pipefail
+          # This job uses Rust and Zig only; hosted Android/.NET SDKs occupy
+          # space needed by the full portable package's dependency graph.
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet
+          df -h "$GITHUB_WORKSPACE"
+
+      - name: Install Linux build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            binutils libcap-dev pkg-config
+
+      - uses: dtolnay/rust-toolchain@e081816240890017053eacbb1bdf337761dc5582 # 1.95.0
+        with:
+          toolchain: 1.95.0
+          targets: x86_64-unknown-linux-musl
+
+      - name: Install Zig
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.14.0
+          use-cache: false
+
+      - name: Install musl build tools
+        shell: bash
+        run: bash "${GITHUB_WORKSPACE}/.github/scripts/install-musl-build-tools.sh"
+
+      - name: Configure rusty_v8 artifacts
+        uses: ./.github/actions/setup-rusty-v8
+        with:
+          target: x86_64-unknown-linux-musl
+
+      - name: Build portable binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --locked --target "$TARGET" --release --timings --bin bwrap
+          bwrap_path="target/${TARGET}/release/bwrap"
+          strip --strip-debug --strip-unneeded "$bwrap_path"
+          digest="$(sha256sum "$bwrap_path" | awk '{print $1}')"
+          export CODEX_BWRAP_SHA256="$digest"
+          echo "CODEX_BWRAP_SHA256=${digest}" >> "$GITHUB_ENV"
+          cargo build --locked --target "$TARGET" --release --timings \
+            --bin codex \
+            --bin codex-code-mode-host \
+            --bin codex-responses-api-proxy
+          strip --strip-debug --strip-unneeded \
+            "target/${TARGET}/release/codex" \
+            "target/${TARGET}/release/codex-code-mode-host" \
+            "target/${TARGET}/release/codex-responses-api-proxy"
+
+      - name: Download packaged zsh manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            "https://github.com/openai/codex/releases/download/${CODEX_ZSH_RELEASE_TAG}/codex-zsh" \
+            -o "${RUNNER_TEMP}/codex-zsh"
+          bash "${GITHUB_WORKSPACE}/.github/scripts/verify-zsh-manifest.sh" \
+            "${RUNNER_TEMP}/codex-zsh" "$CODEX_ZSH_MANIFEST_SHA256"
+
+      - name: Stage portable channel bundle
+        id: stage
+        shell: bash
+        env:
+          RELEASE_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          release_id="$RELEASE_ID"
+          if [[ ! "$release_id" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            echo "Unsafe release identifier: $release_id" >&2
+            exit 1
+          fi
+          archive_name="codex-channels-${release_id}-${TARGET}"
+          stage_dir="${RUNNER_TEMP}/${archive_name}"
+          dist_dir="${GITHUB_WORKSPACE}/dist"
+          mkdir -p "$dist_dir"
+
+          python3 "${GITHUB_WORKSPACE}/scripts/build_codex_package.py" \
+            --target "$TARGET" \
+            --variant codex \
+            --entrypoint-bin "target/${TARGET}/release/codex" \
+            --code-mode-host-bin "target/${TARGET}/release/codex-code-mode-host" \
+            --bwrap-bin "target/${TARGET}/release/bwrap" \
+            --zsh-manifest "${RUNNER_TEMP}/codex-zsh" \
+            --cargo-profile release \
+            --package-dir "$stage_dir" \
+            --force
+
+          cp "target/${TARGET}/release/codex-responses-api-proxy" \
+            "$stage_dir/bin/codex-responses-api-proxy"
+          mkdir -p "$stage_dir/plugins"
+          cp -R "${GITHUB_WORKSPACE}/plugins/telegram-channel" \
+            "$stage_dir/plugins/telegram-channel"
+          mkdir -p "$stage_dir/.agents/plugins"
+          cp "${GITHUB_WORKSPACE}/.agents/plugins/marketplace.json" \
+            "$stage_dir/.agents/plugins/marketplace.json"
+          cp "${GITHUB_WORKSPACE}/scripts/install-codex-channels-release.sh" \
+            "$stage_dir/install.sh"
+          chmod 0755 "$stage_dir/bin/codex-responses-api-proxy" "$stage_dir/install.sh"
+
+          tar -C "$RUNNER_TEMP" -czf "$dist_dir/${archive_name}.tar.gz" "$archive_name"
+          (
+            cd "$dist_dir"
+            sha256sum "${archive_name}.tar.gz" > "${archive_name}.tar.gz.sha256"
+          )
+          echo "archive_name=${archive_name}" >> "$GITHUB_OUTPUT"
+          echo "stage_dir=${stage_dir}" >> "$GITHUB_OUTPUT"
+          echo "archive_path=${dist_dir}/${archive_name}.tar.gz" >> "$GITHUB_OUTPUT"
+          echo "sha256_path=${dist_dir}/${archive_name}.tar.gz.sha256" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke test staged bundle
+        shell: bash
+        env:
+          STAGE_DIR: ${{ steps.stage.outputs.stage_dir }}
+        run: |
+          set -euo pipefail
+          test -x "$STAGE_DIR/bin/codex"
+          test -x "$STAGE_DIR/bin/codex-code-mode-host"
+          test -x "$STAGE_DIR/bin/codex-responses-api-proxy"
+          test -x "$STAGE_DIR/codex-resources/bwrap"
+          test -x "$STAGE_DIR/codex-resources/zsh/bin/zsh"
+          test -x "$STAGE_DIR/codex-path/rg"
+          test -f "$STAGE_DIR/plugins/telegram-channel/.codex-plugin/plugin.json"
+          test -f "$STAGE_DIR/.agents/plugins/marketplace.json"
+          "$STAGE_DIR/bin/codex" --version
+          PREFIX="${RUNNER_TEMP}/installed-channels" "$STAGE_DIR/install.sh"
+          "${RUNNER_TEMP}/installed-channels/bin/codex-channels" --version
+          if command -v node >/dev/null 2>&1; then
+            TELEGRAM_OFFSET_FILE="${RUNNER_TEMP}/telegram-plugin-smoke-offset.json" \
+              node "$STAGE_DIR/plugins/telegram-channel/scripts/telegram-channel.mjs" --self-test
+          fi
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: ${{ steps.stage.outputs.archive_name }}
+          path: |
+            ${{ steps.stage.outputs.archive_path }}
+            ${{ steps.stage.outputs.sha256_path }}
+          if-no-files-found: error
+
+  publish:
+    name: Publish requested release
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.create_release }}
+    needs: linux-x64
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download bundle artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: codex-channels-*
+          path: dist
+          merge-multiple: true
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2.6.1
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          name: ${{ inputs.release_tag }}
+          target_commitish: ${{ github.sha }}
+          files: dist/*
+          fail_on_unmatched_files: true
+          body: |
+            Codex Channels 0.153.4 portable Linux x86_64 bundle.
+
+            Extract the archive and run `./install.sh`. This installs the
+            separate `codex-channels` command; Telegram plugin registration is
+            opt-in with `INSTALL_TELEGRAM_PLUGIN=1`.

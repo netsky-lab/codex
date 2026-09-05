@@ -1,0 +1,6 @@
+---
+source: tui/src/chatwidget/tests/slash_commands.rs
+assertion_line: 3687
+expression: "cells.iter().map(|cell|\nlines_to_single_string(cell)).collect::<Vec<_>>().join(\"\\n\")"
+---
+• Loop is stopped. mode=once, completed=0, interval_minutes=none, max=unlimited Usage: /loop <minutes> [--max N] <prompt> | /loop now [--max N] <prompt> | /loop --immediate [--max N] <prompt> | /loop once <prompt> | /loop stop | /loop status
